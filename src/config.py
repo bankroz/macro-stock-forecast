@@ -43,6 +43,19 @@ MACRO_BDI_CSV = DATA_DIR / "macro_bdi.csv"
 MACRO_RETAIL_CSV = DATA_DIR / "macro_retail.csv"
 MACRO_FISCAL_CSV = DATA_DIR / "macro_fiscal.csv"
 
+# 数据文件 — 第四批冷门宏观指标
+MACRO_ENTERPRISE_BOOM_CSV = DATA_DIR / "macro_enterprise_boom.csv"
+MACRO_CONSUMER_CONFIDENCE_CSV = DATA_DIR / "macro_consumer_confidence.csv"
+MACRO_LPI_CSV = DATA_DIR / "macro_lpi.csv"
+MACRO_REAL_ESTATE_CSV = DATA_DIR / "macro_real_estate.csv"
+MACRO_UNEMPLOYMENT_CSV = DATA_DIR / "macro_unemployment.csv"
+MACRO_TRADE_CSV = DATA_DIR / "macro_trade.csv"
+MACRO_INDUSTRY_CSV = DATA_DIR / "macro_industry.csv"
+MACRO_FA_INVESTMENT_CSV = DATA_DIR / "macro_fa_investment.csv"
+MACRO_INSURANCE_CSV = DATA_DIR / "macro_insurance.csv"
+MACRO_ENTERPRISE_PRICE_CSV = DATA_DIR / "macro_enterprise_price.csv"
+MACRO_GDP_CSV = DATA_DIR / "macro_gdp.csv"
+
 # 预测记录
 PREDICTIONS_CSV = DATA_DIR / "predictions.csv"
 
@@ -69,6 +82,18 @@ MACRO_COLUMNS = {
     "bdi": ["date", "bdi_value", "bdi_yoy"],
     "retail": ["date", "retail_yoy"],
     "fiscal": ["date", "fiscal_yoy"],
+    # 第四批冷门宏观指标
+    "enterprise_boom": ["date", "enterprise_boom_index", "entrepreneur_confidence_index"],
+    "consumer_confidence": ["date", "confidence_index", "satisfaction_index", "expectation_index"],
+    "lpi": ["date", "lpi_index"],
+    "real_estate": ["date", "re_prosperity_index"],
+    "unemployment": ["date", "unemployment_rate"],
+    "trade": ["date", "export_yoy", "import_yoy", "export_amount", "import_amount"],
+    "industry": ["date", "industrial_production_yoy"],
+    "fa_investment": ["date", "fa_investment_yoy"],
+    "insurance": ["date", "insurance_premium_yoy"],
+    "enterprise_price": ["date", "enterprise_price_yoy"],
+    "gdp": ["date", "gdp_yoy"],
 }
 
 # ============================================================

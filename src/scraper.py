@@ -536,6 +536,371 @@ def fetch_macro_fiscal() -> list[dict] | None:
 
 
 # ============================================================
+# 第四批冷门宏观指标抓取函数
+# ============================================================
+
+def fetch_macro_enterprise_boom() -> list[dict] | None:
+    """
+    抓取企业景气指数及企业家信心指数（季度）
+    预测性：企业景气指数领先企业利润和投资决策1-2季度
+    """
+    try:
+        import akshare as ak
+    except ImportError:
+        logger.warning("缺少 akshare")
+        return None
+
+    try:
+        logger.info("akshare: 获取企业景气指数...")
+        df = ak.macro_china_enterprise_boom_index()
+        df = df.rename(columns={
+            "季度": "date",
+            "企业景气指数-指数": "enterprise_boom_index",
+            "企业家信心指数-指数": "entrepreneur_confidence_index",
+        })
+        # 日期格式 "2026年第1季度" → 该季度末月份
+        def parse_quarter(q):
+            m = re.search(r"(\d{4})年第(\d)", q)
+            if not m:
+                return pd.NaT
+            year, qn = int(m.group(1)), int(m.group(2))
+            month = qn * 3  # Q1→3月, Q2→6月, Q3→9月, Q4→12月
+            return pd.Timestamp(year, month, 1)
+        df["date"] = df["date"].apply(parse_quarter)
+        cols = ["date", "enterprise_boom_index", "entrepreneur_confidence_index"]
+        df = df[cols].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+        # 数值转 float
+        df["enterprise_boom_index"] = pd.to_numeric(df["enterprise_boom_index"], errors="coerce")
+        df["entrepreneur_confidence_index"] = pd.to_numeric(df["entrepreneur_confidence_index"], errors="coerce")
+        logger.info(f"获取到 {len(df)} 条企业景气指数数据")
+        return df.to_dict("records")
+    except Exception as e:
+        logger.error(f"企业景气指数获取失败: {e}")
+        return None
+
+
+def fetch_macro_consumer_confidence() -> list[dict] | None:
+    """
+    抓取消费者信心指数（月度）
+    预测性：消费者信心领先消费数据3-6个月，是可选消费板块的先行指标
+    """
+    try:
+        import akshare as ak
+    except ImportError:
+        logger.warning("缺少 akshare")
+        return None
+
+    try:
+        logger.info("akshare: 获取消费者信心指数...")
+        df = ak.macro_china_xfzxx()
+        df = df.rename(columns={
+            "月份": "date",
+            "消费者信心指数-指数值": "confidence_index",
+            "消费者满意指数-指数值": "satisfaction_index",
+            "消费者预期指数-指数值": "expectation_index",
+        })
+        df["date"] = pd.to_datetime(
+            df["date"].str.extract(r"(\d{4})年(\d{1,2})")[0] + "-" +
+            df["date"].str.extract(r"(\d{4})年(\d{1,2})")[1] + "-01"
+        )
+        cols = ["date", "confidence_index", "satisfaction_index", "expectation_index"]
+        df = df[cols].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+        df["confidence_index"] = pd.to_numeric(df["confidence_index"], errors="coerce")
+        df["satisfaction_index"] = pd.to_numeric(df["satisfaction_index"], errors="coerce")
+        df["expectation_index"] = pd.to_numeric(df["expectation_index"], errors="coerce")
+        logger.info(f"获取到 {len(df)} 条消费者信心指数数据")
+        return df.to_dict("records")
+    except Exception as e:
+        logger.error(f"消费者信心指数获取失败: {e}")
+        return None
+
+
+def fetch_macro_lpi() -> list[dict] | None:
+    """
+    抓取物流景气指数（月度）
+    预测性：物流景气反映经济活动和贸易活跃度，与制造业PMI高度相关
+    """
+    try:
+        import akshare as ak
+    except ImportError:
+        logger.warning("缺少 akshare")
+        return None
+
+    try:
+        logger.info("akshare: 获取物流景气指数...")
+        df = ak.macro_china_lpi_index()
+        df = df.rename(columns={
+            "日期": "date",
+            "最新值": "lpi_index",
+        })
+        df["date"] = pd.to_datetime(df["date"])
+        df["lpi_index"] = pd.to_numeric(df["lpi_index"], errors="coerce")
+        cols = ["date", "lpi_index"]
+        df = df[cols].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+        logger.info(f"获取到 {len(df)} 条物流景气指数数据")
+        return df.to_dict("records")
+    except Exception as e:
+        logger.error(f"物流景气指数获取失败: {e}")
+        return None
+
+
+def fetch_macro_real_estate() -> list[dict] | None:
+    """
+    抓取国房景气指数（月度）
+    预测性：房地产是国民经济支柱，国房景气指数领先银行、建材、家电等板块
+    """
+    try:
+        import akshare as ak
+    except ImportError:
+        logger.warning("缺少 akshare")
+        return None
+
+    try:
+        logger.info("akshare: 获取国房景气指数...")
+        df = ak.macro_china_real_estate()
+        df = df.rename(columns={
+            "日期": "date",
+            "最新值": "re_prosperity_index",
+        })
+        df["date"] = pd.to_datetime(df["date"])
+        df["re_prosperity_index"] = pd.to_numeric(df["re_prosperity_index"], errors="coerce")
+        cols = ["date", "re_prosperity_index"]
+        df = df[cols].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+        logger.info(f"获取到 {len(df)} 条国房景气指数数据")
+        return df.to_dict("records")
+    except Exception as e:
+        logger.error(f"国房景气指数获取失败: {e}")
+        return None
+
+
+def fetch_macro_unemployment() -> list[dict] | None:
+    """
+    抓取城镇调查失业率（月度）
+    预测性：失业率是经济周期的滞后指标，但趋势拐点预示消费和政策的边际变化
+    """
+    try:
+        import akshare as ak
+    except ImportError:
+        logger.warning("缺少 akshare")
+        return None
+
+    try:
+        logger.info("akshare: 获取城镇调查失业率...")
+        df = ak.macro_china_urban_unemployment()
+        # 筛选全国城镇调查失业率（注意尾部空格）
+        df["item"] = df["item"].str.strip()
+        df = df[df["item"] == "全国城镇调查失业率"].copy()
+        df = df.rename(columns={"date": "date_raw", "value": "unemployment_rate"})
+        # 日期格式 "201801" → pd.Timestamp
+        df["date"] = pd.to_datetime(df["date_raw"].astype(str) + "01", format="%Y%m%d")
+        df["unemployment_rate"] = pd.to_numeric(df["unemployment_rate"], errors="coerce")
+        cols = ["date", "unemployment_rate"]
+        df = df[cols].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+        logger.info(f"获取到 {len(df)} 条失业率数据")
+        return df.to_dict("records")
+    except Exception as e:
+        logger.error(f"失业率数据获取失败: {e}")
+        return None
+
+
+def fetch_macro_trade() -> list[dict] | None:
+    """
+    抓取海关进出口数据（月度）
+    预测性：出口是外需直接反映，进口是内需反映，贸易差额影响GDP和汇率
+    """
+    try:
+        import akshare as ak
+    except ImportError:
+        logger.warning("缺少 akshare")
+        return None
+
+    try:
+        logger.info("akshare: 获取海关进出口数据...")
+        df = ak.macro_china_hgjck()
+        df = df.rename(columns={
+            "月份": "date",
+            "当月出口额-同比增长": "export_yoy",
+            "当月进口额-同比增长": "import_yoy",
+            "当月出口额-金额": "export_amount",
+            "当月进口额-金额": "import_amount",
+        })
+        df["date"] = pd.to_datetime(
+            df["date"].str.extract(r"(\d{4})年(\d{1,2})")[0] + "-" +
+            df["date"].str.extract(r"(\d{4})年(\d{1,2})")[1] + "-01"
+        )
+        cols = ["date", "export_yoy", "import_yoy", "export_amount", "import_amount"]
+        df = df[cols].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+        for c in ["export_yoy", "import_yoy", "export_amount", "import_amount"]:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+        logger.info(f"获取到 {len(df)} 条进出口数据")
+        return df.to_dict("records")
+    except Exception as e:
+        logger.error(f"进出口数据获取失败: {e}")
+        return None
+
+
+def fetch_macro_industry() -> list[dict] | None:
+    """
+    抓取规模以上工业增加值同比增速（月度）
+    预测性：工业增加值是工业板块盈利的直接基本面，领先工业企业利润1-2月
+    """
+    try:
+        import akshare as ak
+    except ImportError:
+        logger.warning("缺少 akshare")
+        return None
+
+    try:
+        logger.info("akshare: 获取工业增加值增速...")
+        df = ak.macro_china_industrial_production_yoy()
+        # 金十格式：有发布日期和今值，需要提取今值作为该月数据
+        df = df[["日期", "今值"]].copy()
+        df = df.rename(columns={"日期": "pub_date", "今值": "industrial_production_yoy"})
+        df["pub_date"] = pd.to_datetime(df["pub_date"])
+        df["industrial_production_yoy"] = pd.to_numeric(df["industrial_production_yoy"], errors="coerce")
+        # 用发布日期作为近似月份（金十数据发布日期≈数据月份）
+        df["date"] = df["pub_date"].dt.to_period("M").dt.to_timestamp()
+        cols = ["date", "industrial_production_yoy"]
+        df = df[cols].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+        # 去重
+        df = df.drop_duplicates(subset=["date"], keep="first")
+        logger.info(f"获取到 {len(df)} 条工业增加值数据")
+        return df.to_dict("records")
+    except Exception as e:
+        logger.error(f"工业增加值数据获取失败: {e}")
+        return None
+
+
+def fetch_macro_fa_investment() -> list[dict] | None:
+    """
+    抓取城镇固定资产投资同比增速（月度）
+    预测性：固定资产投资是资本开支和基建的领先指标，与建材/钢铁/机械板块高度相关
+    """
+    try:
+        import akshare as ak
+    except ImportError:
+        logger.warning("缺少 akshare")
+        return None
+
+    try:
+        logger.info("akshare: 获取固定资产投资增速...")
+        df = ak.macro_china_gdzctz()
+        df = df.rename(columns={
+            "月份": "date",
+            "同比增长": "fa_investment_yoy",
+        })
+        df["date"] = pd.to_datetime(
+            df["date"].str.extract(r"(\d{4})年(\d{1,2})")[0] + "-" +
+            df["date"].str.extract(r"(\d{4})年(\d{1,2})")[1] + "-01"
+        )
+        df["fa_investment_yoy"] = pd.to_numeric(df["fa_investment_yoy"], errors="coerce")
+        cols = ["date", "fa_investment_yoy"]
+        df = df[cols].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+        logger.info(f"获取到 {len(df)} 条固定资产投资数据")
+        return df.to_dict("records")
+    except Exception as e:
+        logger.error(f"固定资产投资数据获取失败: {e}")
+        return None
+
+
+def fetch_macro_insurance() -> list[dict] | None:
+    """
+    抓取保险保费收入（月度）
+    预测性：保险保费是居民风险偏好和财富水平的综合反映，金融板块的间接指标
+    """
+    try:
+        import akshare as ak
+    except ImportError:
+        logger.warning("缺少 akshare")
+        return None
+
+    try:
+        logger.info("akshare: 获取保险保费收入...")
+        df = ak.macro_china_insurance_income()
+        # 东方财富格式：日期 + 最新值 + 涨跌幅系列
+        df = df.rename(columns={"日期": "date", "最新值": "insurance_premium"})
+        df["date"] = pd.to_datetime(df["date"])
+        df["insurance_premium"] = pd.to_numeric(df["insurance_premium"], errors="coerce")
+        # 按月聚合
+        df["year_month"] = df["date"].dt.to_period("M")
+        monthly = df.groupby("year_month").last().reset_index()
+        monthly["date"] = monthly["date"].dt.to_period("M").dt.to_timestamp()
+        # 计算同比
+        monthly["insurance_premium_yoy"] = monthly["insurance_premium"].pct_change(periods=12) * 100
+        cols = ["date", "insurance_premium_yoy"]
+        monthly = monthly[cols].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+        logger.info(f"获取到 {len(monthly)} 条保险保费数据")
+        return monthly.to_dict("records")
+    except Exception as e:
+        logger.error(f"保险保费数据获取失败: {e}")
+        return None
+
+
+def fetch_macro_enterprise_price() -> list[dict] | None:
+    """
+    抓取企业商品价格指数（月度）
+    预测性：企业商品价格是PPI和CPI的中间环节，通胀传导的领先指标
+    """
+    try:
+        import akshare as ak
+    except ImportError:
+        logger.warning("缺少 akshare")
+        return None
+
+    try:
+        logger.info("akshare: 获取企业商品价格指数...")
+        df = ak.macro_china_qyspjg()
+        df = df.rename(columns={
+            "月份": "date",
+            "总指数-同比增长": "enterprise_price_yoy",
+            "总指数-指数值": "enterprise_price_index",
+        })
+        df["date"] = pd.to_datetime(
+            df["date"].str.extract(r"(\d{4})年(\d{1,2})")[0] + "-" +
+            df["date"].str.extract(r"(\d{4})年(\d{1,2})")[1] + "-01"
+        )
+        df["enterprise_price_yoy"] = pd.to_numeric(df["enterprise_price_yoy"], errors="coerce")
+        cols = ["date", "enterprise_price_yoy"]
+        df = df[cols].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+        logger.info(f"获取到 {len(df)} 条企业商品价格数据")
+        return df.to_dict("records")
+    except Exception as e:
+        logger.error(f"企业商品价格数据获取失败: {e}")
+        return None
+
+
+def fetch_macro_gdp() -> list[dict] | None:
+    """
+    抓取GDP同比增速（季度）
+    预测性：GDP是股市长期走势的基石，GDP增速拐点领先政策转向
+    """
+    try:
+        import akshare as ak
+    except ImportError:
+        logger.warning("缺少 akshare")
+        return None
+
+    try:
+        logger.info("akshare: 获取GDP增速...")
+        df = ak.macro_china_gdp_yearly()
+        # 金十格式：有发布日期和今值
+        df = df[["日期", "今值"]].copy()
+        df = df.rename(columns={"日期": "pub_date", "今值": "gdp_yoy"})
+        df["pub_date"] = pd.to_datetime(df["pub_date"])
+        df["gdp_yoy"] = pd.to_numeric(df["gdp_yoy"], errors="coerce")
+        # 发布日期近似季度末
+        df["date"] = df["pub_date"].dt.to_period("M").dt.to_timestamp()
+        cols = ["date", "gdp_yoy"]
+        df = df[cols].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+        df = df.drop_duplicates(subset=["date"], keep="first")
+        logger.info(f"获取到 {len(df)} 条GDP数据")
+        return df.to_dict("records")
+    except Exception as e:
+        logger.error(f"GDP数据获取失败: {e}")
+        return None
+
+
+# ============================================================
 # 宏观指标批量抓取入口
 # ============================================================
 
@@ -553,4 +918,16 @@ MACRO_FETCHERS = {
     "bdi": ("BDI干散货指数", fetch_macro_bdi),
     "retail": ("社消零售总额", fetch_macro_retail),
     "fiscal": ("财政收入", fetch_macro_fiscal),
+    # 第四批冷门宏观指标
+    "enterprise_boom": ("企业景气指数", fetch_macro_enterprise_boom),
+    "consumer_confidence": ("消费者信心指数", fetch_macro_consumer_confidence),
+    "lpi": ("物流景气指数", fetch_macro_lpi),
+    "real_estate": ("国房景气指数", fetch_macro_real_estate),
+    "unemployment": ("城镇调查失业率", fetch_macro_unemployment),
+    "trade": ("海关进出口", fetch_macro_trade),
+    "industry": ("工业增加值", fetch_macro_industry),
+    "fa_investment": ("固定资产投资", fetch_macro_fa_investment),
+    "insurance": ("保险保费收入", fetch_macro_insurance),
+    "enterprise_price": ("企业商品价格指数", fetch_macro_enterprise_price),
+    "gdp": ("GDP增速", fetch_macro_gdp),
 }
