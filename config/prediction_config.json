@@ -1,8 +1,11 @@
 {
   "meta": {
-    "version": "1.0",
-    "description": "预测引擎配置 - 手动编辑或自动学习调整",
-    "last_modified": "2026-05-28"
+    "version": "2.0",
+    "description": "预测引擎配置 - 基于3个月收益率滞后Pearson相关性计算权重，训练/验证方向稳定性验证",
+    "last_modified": "2026-05-28",
+    "weight_method": "correlation_based_3m_return",
+    "weight_calc_date": "2026-05-28",
+    "weight_data_range": "2015-01 ~ 2026-04 (全样本117月, 训练2015-2021, 验证2022-2026)"
   },
   "parameters": {
     "horizon_months": 3,
@@ -15,40 +18,60 @@
   },
   "predictive_indicators": {
     "retail_yoy": {
-      "weight": 0.37,
+      "weight": 0.323,
       "lag_months": 10,
-      "r": -0.5007,
+      "r": -0.2182,
+      "r_p": 0.0283,
       "direction": "negative",
       "label": "社消零售",
       "min_weight": 0.05,
-      "max_weight": 0.50
+      "max_weight": 0.50,
+      "direction_stable": true,
+      "test_r": -0.5111,
+      "test_p": 0.0028,
+      "correlation_note": "3月收益率窗口, lag=10月, p<0.05, 方向训练/验证一致"
     },
     "fiscal_yoy": {
-      "weight": 0.27,
-      "lag_months": 10,
-      "r": -0.3681,
+      "weight": 0.098,
+      "lag_months": 6,
+      "r": -0.1241,
+      "r_p": 0.4709,
       "direction": "negative",
       "label": "财政收入",
       "min_weight": 0.05,
-      "max_weight": 0.50
+      "max_weight": 0.50,
+      "direction_stable": false,
+      "test_r": -0.1241,
+      "test_p": 0.4709,
+      "correlation_note": "方向训练/验证FLIP, 权重x0.5惩罚, 取验证集方向(negative)"
     },
     "non_bank_yoy": {
-      "weight": 0.22,
+      "weight": 0.367,
       "lag_months": 6,
-      "r": 0.30,
+      "r": 0.2479,
+      "r_p": 0.0068,
       "direction": "positive",
       "label": "非银存款增速",
       "min_weight": 0.05,
-      "max_weight": 0.50
+      "max_weight": 0.50,
+      "direction_stable": true,
+      "test_r": 0.4330,
+      "test_p": 0.0026,
+      "correlation_note": "3月收益率窗口, lag=4-11月均p<0.05, 验证集r=+0.43**(最强最稳定)"
     },
     "m2_yoy": {
-      "weight": 0.14,
-      "lag_months": 6,
-      "r": 0.20,
-      "direction": "positive",
+      "weight": 0.213,
+      "lag_months": 0,
+      "r": -0.1437,
+      "r_p": 0.0990,
+      "direction": "negative",
       "label": "M2增速",
       "min_weight": 0.05,
-      "max_weight": 0.50
+      "max_weight": 0.50,
+      "direction_stable": true,
+      "test_r": -0.2148,
+      "test_p": 0.1262,
+      "correlation_note": "3月收益率窗口, lag=0月同步, 边际显著(p<0.10)"
     }
   },
   "confirming_indicators": {

@@ -18,6 +18,7 @@ warnings.filterwarnings(
 
 import sys
 import logging
+import pandas as pd
 from pathlib import Path
 from datetime import datetime
 
@@ -32,7 +33,7 @@ from src.signal_detector import detect_signals, backtest_signals
 from src.chart_generator import (
     generate_main_chart, generate_rate_chart, generate_signal_chart,
     generate_macro_credit_chart, generate_macro_liquidity_chart,
-    generate_prediction_dashboard,
+    generate_prediction_dashboard, generate_all_charts,
 )
 from src.report_generator import generate_report
 from src.prediction import (
@@ -166,61 +167,33 @@ def run(fetch_new_data: bool = True):
 
     # Step 5: 生成图表
     logger.info("[Step 5/6] 生成图表...")
-    charts = []
-    try:
-        charts.append(generate_main_chart(indicators_df, result))
-    except Exception as e:
-        logger.error(f"主图生成失败: {e}")
+    chart_paths = generate_all_charts(indicators_df, result, pd.DataFrame(), prediction_result)
 
-    try:
-        charts.append(generate_rate_chart(indicators_df))
-    except Exception as e:
-        logger.error(f"增速对比图生成失败: {e}")
-
-    try:
-        c = generate_macro_credit_chart(indicators_df)
-        if c:
-            charts.append(c)
-    except Exception as e:
-        logger.error(f"信用周期图生成失败: {e}")
-
-    try:
-        c = generate_macro_liquidity_chart(indicators_df)
-        if c:
-            charts.append(c)
-    except Exception as e:
-        logger.error(f"流动性全景图生成失败: {e}")
-
-    # 预测仪表盘
-    try:
-        c = generate_prediction_dashboard(prediction_result)
-        if c:
-            charts.append(c)
-    except Exception as e:
-        logger.error(f"预测仪表盘生成失败: {e}")
-
-    # 回测
+    # 回测（需在图表之后，因为回测图依赖 backtest_df）
     logger.info("执行历史回测...")
     try:
         backtest_df = backtest_signals(indicators_df)
         if not backtest_df.empty:
-            chart = generate_signal_chart(indicators_df, backtest_df)
-            if chart:
-                charts.append(chart)
+            try:
+                c = generate_signal_chart(indicators_df, backtest_df)
+                chart_paths["signal_backtest"] = c if c else None
+            except Exception as e:
+                logger.error(f"信号回测图生成失败: {e}")
         else:
             backtest_df = pd.DataFrame()
     except Exception as e:
         logger.error(f"回测失败: {e}")
         backtest_df = pd.DataFrame()
 
-    # Step 6: 生成报告
-    logger.info("[Step 6/6] 生成分析报告...")
+    # Step 6: 生成 HTML 报告（图表 Base64 内嵌）
+    logger.info("[Step 6/6] 生成 HTML 分析报告...")
     try:
         report_path = generate_report(
             df, indicators_df, result, backtest_df,
             prediction_result=prediction_result,
             prediction_report_text=prediction_report_text,
             deviation_report_text=deviation_report_text,
+            chart_paths=chart_paths,
         )
         logger.info(f"报告已生成: {report_path}")
     except Exception as e:

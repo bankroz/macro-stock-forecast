@@ -446,3 +446,61 @@ def generate_prediction_dashboard(prediction_result) -> Path | None:
     plt.close()
     logger.info(f"预测仪表盘已保存: {output_path}")
     return output_path
+
+
+def generate_all_charts(indicators_df, result, backtest_df, prediction_result) -> dict:
+    """
+    生成全部图表，返回 {chart_name: Path} 字典。
+
+    返回键名：
+      main_trend, rate_comparison, signal_backtest,
+      macro_credit, macro_liquidity, prediction_dashboard
+
+    如果某图表生成失败，对应值为 None。
+    """
+    charts = {}
+
+    try:
+        charts["main_trend"] = generate_main_chart(indicators_df, result)
+    except Exception as e:
+        logger.error(f"主图生成失败: {e}")
+        charts["main_trend"] = None
+
+    try:
+        charts["rate_comparison"] = generate_rate_chart(indicators_df)
+    except Exception as e:
+        logger.error(f"增速对比图生成失败: {e}")
+        charts["rate_comparison"] = None
+
+    try:
+        c = generate_macro_credit_chart(indicators_df)
+        charts["macro_credit"] = c if c else None
+    except Exception as e:
+        logger.error(f"信用周期图生成失败: {e}")
+        charts["macro_credit"] = None
+
+    try:
+        c = generate_macro_liquidity_chart(indicators_df)
+        charts["macro_liquidity"] = c if c else None
+    except Exception as e:
+        logger.error(f"流动性全景图生成失败: {e}")
+        charts["macro_liquidity"] = None
+
+    try:
+        c = generate_prediction_dashboard(prediction_result)
+        charts["prediction_dashboard"] = c if c else None
+    except Exception as e:
+        logger.error(f"预测仪表盘生成失败: {e}")
+        charts["prediction_dashboard"] = None
+
+    try:
+        if not backtest_df.empty:
+            c = generate_signal_chart(indicators_df, backtest_df)
+            charts["signal_backtest"] = c if c else None
+        else:
+            charts["signal_backtest"] = None
+    except Exception as e:
+        logger.error(f"信号回测图生成失败: {e}")
+        charts["signal_backtest"] = None
+
+    return charts

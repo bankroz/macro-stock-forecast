@@ -16,7 +16,7 @@ if %errorlevel% neq 0 (
 :: 进入脚本所在目录
 cd /d "%~dp0"
 
-echo [1/3] 正在运行分析程序...
+echo [1/2] 正在运行分析程序...
 echo(
 
 :: 运行 Python，捕获退出码（stderr 不干扰 errorlevel）
@@ -27,20 +27,16 @@ echo(
 echo ============================================================
 
 if %PY_EXIT% equ 0 (
-    echo [2/3] 分析完成，正在打开报告...
+    echo [2/2] 分析完成，正在打开 HTML 报告...
     echo(
 
-    :: 用独立子程序打开最新报告，避免标签跳转污染 errorlevel
+    :: 用独立子程序打开最新 HTML 报告
     call :open_report
 
     echo(
-    echo [3/3] 打开图表目录...
-    start "" "%~dp0output"
-    echo(
     echo ============================================================
     echo   运行完成!
-    echo   - 报告已在默认编辑器中打开
-    echo   - 图表目录已打开，请查看 PNG 图片
+    echo   - HTML 报告已在浏览器中打开（含图表）
     echo ============================================================
 ) else (
     echo(
@@ -52,17 +48,17 @@ pause
 exit /b %PY_EXIT%
 
 :: ============================================================
-:: 子程序：打开最新报告文件
+:: 子程序：打开最新 HTML 报告
 :: ============================================================
 :open_report
     set "REPORT="
-    for /f "delims=" %%f in ('dir /b /o-d "%~dp0reports\*_report.md"') do (
+    for /f "delims=" %%f in ('dir /b /o-d "%~dp0reports\*_report.html"') do (
         if not defined REPORT set "REPORT=%%f"
     )
     if defined REPORT (
         start "" "%~dp0reports\%REPORT%"
         echo   报告文件: %~dp0reports\%REPORT%
     ) else (
-        echo   未找到报告文件，请检查 reports/ 目录
+        echo   未找到 HTML 报告，请检查 reports/ 目录
     )
     exit /b 0
