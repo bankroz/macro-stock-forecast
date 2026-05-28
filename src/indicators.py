@@ -30,6 +30,17 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     if "sh_close" in result.columns:
         result["sh_mom"] = result["sh_close"].pct_change() * 100
 
+    # 上证成交量技术面指标
+    if "sh_volume" in result.columns:
+        result["sh_volume"] = pd.to_numeric(result["sh_volume"], errors="coerce")
+        result["sh_volume_mom"] = result["sh_volume"].pct_change() * 100
+        result["sh_volume_ma3_ratio"] = result["sh_volume"] / result["sh_volume"].rolling(3).mean()
+    if "sh_close" in result.columns:
+        # 均线斜率：20日均线在月度聚合中的近似 = 月收盘价与3月均值之比的变化
+        result["sh_ma3"] = result["sh_close"].rolling(3).mean()
+        result["sh_ma20_approx"] = result["sh_close"].rolling(3).mean()  # 月度近似
+        result["sh_ma_slope"] = result["sh_ma3"].pct_change() * 100  # 均线斜率(%)
+
     # YoY 同比变化率 (%)
     if "household_deposit" in result.columns:
         result["household_yoy"] = result["household_deposit"].pct_change(periods=12) * 100
@@ -129,9 +140,17 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
                 "unemployment_rate", "export_yoy", "import_yoy",
                 "industrial_production_yoy", "fa_investment_yoy",
                 "insurance_premium_yoy", "enterprise_price_yoy",
-                "gdp_yoy", "vegetable_basket_yoy", "commodity_price_yoy"]:
+                "gdp_yoy", "vegetable_basket_yoy", "commodity_price_yoy",
+                "new_credit_yoy", "rmb_loan_yoy"]:
         if col in result.columns:
             result[col] = pd.to_numeric(result[col], errors="coerce")
+
+    # ========== 信贷脉冲衍生指标 ==========
+    if "new_credit_yoy" in result.columns:
+        # 信贷脉冲 = 新增信贷同比的12月滚动均值的变化率
+        result["credit_pulse"] = result["new_credit_yoy"].rolling(12).mean().pct_change() * 100
+        # 3月均值
+        result["new_credit_yoy_ma3"] = result["new_credit_yoy"].rolling(3).mean()
 
     return result
 

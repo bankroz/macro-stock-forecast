@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 历史回测预测脚本
-用当前 v2.0 预测模型在历史上每个月做预测，回填实际 3 月收益率，评估准确率。
+用当前 v3.0 预测模型在历史上每个月做预测，回填实际 3 月收益率，评估准确率。
+v3.0 改进: 自适应阈值 + 看跌增强确认 + 信贷脉冲/技术面确认指标
 
 用法: python backtest_prediction.py
 """
@@ -13,6 +14,7 @@ import logging
 sys.path.insert(0, ".")
 from src.config import (
     PREDICTIONS_CSV,
+    PREDICTION_CONFIG,
     PREDICTIVE_INDICATORS,
     CONFIRMING_INDICATORS,
     CONFIRMING_LABELS,
@@ -134,9 +136,29 @@ def backtest_predict(df: pd.DataFrame) -> pd.DataFrame:
         final_score = max(-1.0, min(1.0, final_score))
         confidence = abs(final_score)
 
-        if final_score > PREDICTION_BULL_THRESHOLD:
+        # v3.0: 自适应阈值
+        effective_bull = PREDICTION_BULL_THRESHOLD
+        effective_bear = PREDICTION_BEAR_THRESHOLD
+        adaptive_cfg = PREDICTION_CONFIG.get("adaptive_threshold", {})
+        if adaptive_cfg.get("enabled", False) and "sh_close" in current_df.columns:
+            vol_window = adaptive_cfg.get("volatility_window", 6)
+            high_vol_ratio = adaptive_cfg.get("high_vol_ratio", 0.04)
+            high_vol_adj = adaptive_cfg.get("high_vol_adjust", -0.05)
+            low_vol_adj = adaptive_cfg.get("low_vol_adjust", 0.05)
+            close_s = current_df["sh_close"].dropna().tail(vol_window)
+            if len(close_s) >= vol_window:
+                mom_s = close_s.pct_change().dropna()
+                vol_r = mom_s.std() if len(mom_s) > 0 else 0
+                if vol_r > high_vol_ratio:
+                    effective_bull = max(0.0, PREDICTION_BULL_THRESHOLD + high_vol_adj)
+                    effective_bear = min(-0.0, PREDICTION_BEAR_THRESHOLD - high_vol_adj)
+                else:
+                    effective_bull = PREDICTION_BULL_THRESHOLD + low_vol_adj
+                    effective_bear = PREDICTION_BEAR_THRESHOLD - low_vol_adj
+
+        if final_score > effective_bull:
             direction = "看涨"
-        elif final_score < PREDICTION_BEAR_THRESHOLD:
+        elif final_score < effective_bear:
             direction = "看跌"
         else:
             direction = "中性"
@@ -163,6 +185,13 @@ def backtest_predict(df: pd.DataFrame) -> pd.DataFrame:
             if (direction == "看涨" and sc >= 0) or (direction == "看跌" and sc <= 0):
                 confirming_count_correct += 1
         confirming_pct = confirming_count_correct / confirming_count if confirming_count > 0 else 0
+
+        # v3.0: 看跌增强确认
+        bear_cfg = PREDICTION_CONFIG.get("bear_confirm", {})
+        if bear_cfg.get("enabled", False) and direction == "看跌":
+            min_confirm = bear_cfg.get("min_confirming_pct", 0.40)
+            if confirming_pct < min_confirm:
+                direction = "中性"  # 降级
 
         # 实际3月收益率
         target_idx = i + 3  # 3个月后
@@ -323,6 +352,8 @@ def main():
     # 保存到 predictions.csv（备份旧文件）
     if PREDICTIONS_CSV.exists():
         backup = PREDICTIONS_CSV.with_suffix(".csv.bak")
+        if backup.exists():
+            backup.unlink()
         PREDICTIONS_CSV.rename(backup)
         logger.info(f"已备份旧文件: {backup}")
 

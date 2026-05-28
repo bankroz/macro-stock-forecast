@@ -18,6 +18,7 @@ from src.config import (
     MACRO_TRADE_CSV, MACRO_INDUSTRY_CSV, MACRO_FA_INVESTMENT_CSV,
     MACRO_INSURANCE_CSV, MACRO_ENTERPRISE_PRICE_CSV, MACRO_GDP_CSV,
     MACRO_VEGETABLE_BASKET_CSV, MACRO_COMMODITY_PRICE_CSV,
+    MACRO_CREDIT_CSV,
     MACRO_COLUMNS,
 )
 
@@ -82,8 +83,8 @@ def load_deposits() -> pd.DataFrame:
 
 
 def load_sh_index() -> pd.DataFrame:
-    """加载上证指数数据 CSV"""
-    return _load_csv(SH_INDEX_CSV, ["date", "sh_close"])
+    """加载上证指数数据 CSV（含成交量）"""
+    return _load_csv(SH_INDEX_CSV, ["date", "sh_close", "sh_volume"])
 
 
 def save_deposits(df: pd.DataFrame):
@@ -91,7 +92,7 @@ def save_deposits(df: pd.DataFrame):
 
 
 def save_sh_index(df: pd.DataFrame):
-    _save_csv(df, SH_INDEX_CSV, ["date", "sh_close"])
+    _save_csv(df, SH_INDEX_CSV, ["date", "sh_close", "sh_volume"])
 
 
 def update_deposits(new_rows: list[dict]):
@@ -99,7 +100,7 @@ def update_deposits(new_rows: list[dict]):
 
 
 def update_sh_index(new_rows: list[dict]):
-    _update_csv(SH_INDEX_CSV, ["date", "sh_close"], new_rows)
+    _update_csv(SH_INDEX_CSV, ["date", "sh_close", "sh_volume"], new_rows)
 
 
 # ============================================================
@@ -136,6 +137,8 @@ _MACRO_PATHS = {
     # 周度/日度聚合（先存）
     "vegetable_basket": MACRO_VEGETABLE_BASKET_CSV,
     "commodity_price": MACRO_COMMODITY_PRICE_CSV,
+    # 第五批政策情绪指标
+    "credit": MACRO_CREDIT_CSV,
 }
 
 

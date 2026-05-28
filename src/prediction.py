@@ -46,6 +46,8 @@ class PredictionResult:
     confirming_score: float                # 趋势确认分数 [-1, +1]
     confirming_pct: float                  # 确认度百分比 [0, 1]
     confirming_details: dict               # 各确认指标状态
+    adaptive_info: dict = field(default_factory=dict)      # 自适应阈值状态 (v3.0)
+    bear_confirm_info: dict = field(default_factory=dict)  # 看跌确认状态 (v3.0)
 
 
 def _get_latest_valid(df: pd.DataFrame, col: str) -> float | None:
@@ -155,10 +157,39 @@ def generate_prediction(df: pd.DataFrame) -> PredictionResult:
     final_score = max(-1.0, min(1.0, final_score))
     confidence = abs(final_score)
 
+    # ---- 自适应阈值 (v3.0) ----
+    adaptive_info = {}
+    effective_bull = PREDICTION_BULL_THRESHOLD
+    effective_bear = PREDICTION_BEAR_THRESHOLD
+
+    adaptive_cfg = PREDICTION_CONFIG.get("adaptive_threshold", {})
+    if adaptive_cfg.get("enabled", False) and "sh_close" in df.columns:
+        vol_window = adaptive_cfg.get("volatility_window", 6)
+        high_vol_ratio = adaptive_cfg.get("high_vol_ratio", 0.04)
+        high_vol_adj = adaptive_cfg.get("high_vol_adjust", -0.05)
+        low_vol_adj = adaptive_cfg.get("low_vol_adjust", 0.05)
+
+        close_series = df["sh_close"].dropna().tail(vol_window)
+        if len(close_series) >= vol_window:
+            mom_series = close_series.pct_change().dropna()
+            vol_ratio = mom_series.std() if len(mom_series) > 0 else 0
+            if vol_ratio > high_vol_ratio:
+                # 高波动（趋势市）: 降低阈值 → 更容易输出方向性预测
+                effective_bull = max(0.0, PREDICTION_BULL_THRESHOLD + high_vol_adj)
+                effective_bear = min(-0.0, PREDICTION_BEAR_THRESHOLD - high_vol_adj)
+                adaptive_info = {"market_state": "趋势市", "volatility": round(vol_ratio, 4),
+                                  "bull_adj": effective_bull, "bear_adj": effective_bear}
+            else:
+                # 低波动（震荡市）: 提高阈值 → 更倾向中性预测
+                effective_bull = PREDICTION_BULL_THRESHOLD + low_vol_adj
+                effective_bear = PREDICTION_BEAR_THRESHOLD - low_vol_adj
+                adaptive_info = {"market_state": "震荡市", "volatility": round(vol_ratio, 4),
+                                  "bull_adj": effective_bull, "bear_adj": effective_bear}
+
     # 预测方向
-    if final_score > PREDICTION_BULL_THRESHOLD:
+    if final_score > effective_bull:
         direction = "看涨"
-    elif final_score < PREDICTION_BEAR_THRESHOLD:
+    elif final_score < effective_bear:
         direction = "看跌"
     else:
         direction = "中性"
@@ -216,6 +247,20 @@ def generate_prediction(df: pd.DataFrame) -> PredictionResult:
     else:
         confirming_label = "矛盾信号"
 
+    # ---- 看跌增强确认 (v3.0) ----
+    bear_confirm_cfg = PREDICTION_CONFIG.get("bear_confirm", {})
+    bear_confirm_info = {}
+    if bear_confirm_cfg.get("enabled", False) and direction == "看跌":
+        min_confirm = bear_confirm_cfg.get("min_confirming_pct", 0.40)
+        if confirming_pct < min_confirm:
+            # 看跌确认不足，降级为中性
+            old_direction = direction
+            direction = "中性"
+            bear_confirm_info = {"downgraded": True, "reason": "看跌确认不足",
+                                  "confirming_pct": round(confirming_pct, 2),
+                                  "required_pct": min_confirm}
+            logger.info(f"看跌预测降级为中性: 确认度{confirming_pct:.0%} < {min_confirm:.0%}")
+
     # 获取日期
     latest_date = df["date"].dropna().iloc[-1]
     date_str = pd.Timestamp(latest_date).strftime("%Y-%m")
@@ -229,6 +274,8 @@ def generate_prediction(df: pd.DataFrame) -> PredictionResult:
         confirming_score=round(avg_confirming, 4),
         confirming_pct=round(confirming_pct, 4),
         confirming_details=confirming_details,
+        adaptive_info=adaptive_info,
+        bear_confirm_info=bear_confirm_info,
     )
 
     logger.info(

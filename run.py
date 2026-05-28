@@ -109,7 +109,7 @@ def run(fetch_new_data: bool = True):
     logger.info(f"数据范围: {df['date'].min().strftime('%Y-%m')} 至 {df['date'].max().strftime('%Y-%m')}, 共 {len(df)} 条")
 
     # Step 3: 信号检测
-    logger.info("[Step 3/6] 执行信号检测（13个信号）...")
+    logger.info("[Step 3/6] 执行信号检测（15个信号）...")
     result = detect_signals(indicators_df)
     logger.info(f"风险等级: {result.risk_level.value} - {result.summary}")
 

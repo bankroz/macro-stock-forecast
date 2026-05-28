@@ -1,7 +1,7 @@
 {
   "meta": {
-    "version": "2.0",
-    "description": "预测引擎配置 - 基于3个月收益率滞后Pearson相关性计算权重，训练/验证方向稳定性验证",
+    "version": "3.0",
+    "description": "预测引擎配置 v3.0 - v2.0相关性加权 + 信贷脉冲 + 技术面确认 + 看跌增强确认 + 自适应阈值",
     "last_modified": "2026-05-28",
     "weight_method": "correlation_based_3m_return",
     "weight_calc_date": "2026-05-28",
@@ -15,6 +15,17 @@
     "min_history_months": 12,
     "return_direction_threshold": 2.0,
     "single_direction_threshold": 0.1
+  },
+  "adaptive_threshold": {
+    "enabled": true,
+    "volatility_window": 6,
+    "high_vol_adjust": -0.04,
+    "low_vol_adjust": 0.04,
+    "high_vol_ratio": 0.04
+  },
+  "bear_confirm": {
+    "enabled": true,
+    "min_confirming_pct": 0.40
   },
   "predictive_indicators": {
     "retail_yoy": {
@@ -130,6 +141,27 @@
       "r": 0.150,
       "description": "经济活动活跃度边际确认",
       "threshold": 50,
+      "inverse": false
+    },
+    "credit_pulse": {
+      "label": "信贷脉冲",
+      "r": 0,
+      "description": "信用扩张/收缩即时确认",
+      "threshold": 0,
+      "inverse": false
+    },
+    "sh_ma_slope": {
+      "label": "均线斜率",
+      "r": 0,
+      "description": "趋势方向确认",
+      "threshold": 0,
+      "inverse": false
+    },
+    "sh_volume_mom": {
+      "label": "成交量变化率",
+      "r": 0,
+      "description": "市场活跃度确认",
+      "threshold": 0,
       "inverse": false
     }
   },

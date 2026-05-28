@@ -568,6 +568,98 @@ def _check_fiscal_turning_point(df: pd.DataFrame) -> list[Signal]:
 
 
 # ============================================================
+# 第五批政策情绪/技术面信号（新增 2 个）
+# ============================================================
+
+def _check_credit_pulse_spike(df: pd.DataFrame) -> list[Signal]:
+    """
+    第五批信号1: 信贷脉冲飙升（政策刺激信号）
+    条件: 新增信贷同比连续2月大幅上升（从低位快速回升）
+    预测性: 信贷脉冲是政策宽松的同步指标，大幅飙升领先经济复苏
+    """
+    signals = []
+
+    if "new_credit_yoy" not in df.columns:
+        return signals
+
+    series = df["new_credit_yoy"].dropna()
+    if len(series) < 3:
+        return signals
+
+    tail = series.tail(3).values
+    # 最近2个月信贷同比快速上升且当前值为正
+    if len(tail) >= 3 and tail[-1] > 0 and tail[-2] > 0:
+        rise = tail[-1] - tail[-3]
+        if rise > 30:  # 同比增速30个百分点以上跳升
+            signals.append(Signal(
+                name="信贷脉冲飙升（政策刺激）",
+                level=SignalLevel.WARNING,
+                date=str(df["date"].iloc[-1].strftime("%Y-%m")),
+                detail=(
+                    f"新增信贷同比从 {tail[-3]:.1f}% 飙升至 {tail[-1]:.1f}%（+{rise:.1f}个百分点），"
+                    f"政策宽松信号，可能领先市场反弹3-6个月"
+                ),
+                value=rise,
+            ))
+
+    return signals
+
+
+def _check_volume_divergence(df: pd.DataFrame) -> list[Signal]:
+    """
+    第五批信号2: 量价背离（技术面确认信号）
+    条件: 指数3月连续上升 + 成交量连续2月下降
+    预测性: 上涨缩量是顶部区域的经典技术信号
+    """
+    signals = []
+
+    if "sh_close" not in df.columns or "sh_volume" not in df.columns:
+        return signals
+
+    n = 3
+    if len(df) < n + 1:
+        return signals
+
+    tail = df.tail(n + 1)
+
+    # 指数连续3月上升
+    index_rising = all(
+        tail["sh_close"].iloc[i] > tail["sh_close"].iloc[i - 1]
+        for i in range(1, n + 1)
+    )
+    if not index_rising:
+        return signals
+
+    # 成交量连续2月下降
+    vol_declining = all(
+        tail["sh_volume"].iloc[-i] < tail["sh_volume"].iloc[-i - 1]
+        for i in range(1, min(2, n))
+    )
+    if not vol_declining:
+        return signals
+
+    # 确保成交量有效
+    if tail["sh_volume"].iloc[-1] <= 0 or tail["sh_volume"].iloc[-3] <= 0:
+        return signals
+
+    vol_change = (tail["sh_volume"].iloc[-1] / tail["sh_volume"].iloc[-3] - 1) * 100
+    idx_change = (tail["sh_close"].iloc[-1] / tail["sh_close"].iloc[-3] - 1) * 100
+
+    signals.append(Signal(
+        name="量价背离（涨缩量）",
+        level=SignalLevel.WARNING,
+        date=str(df["date"].iloc[-1].strftime("%Y-%m")),
+        detail=(
+            f"上证指数连续{n}月上升（+{idx_change:.1f}%），"
+            f"但成交量下降{abs(vol_change):.1f}%，量价背离暗示上涨动力不足"
+        ),
+        value=vol_change,
+    ))
+
+    return signals
+
+
+# ============================================================
 # 信号汇总与风险判定
 # ============================================================
 
@@ -596,6 +688,10 @@ def detect_signals(df: pd.DataFrame) -> DetectionResult:
     all_signals.extend(_check_bdi_extreme_reversal(df))
     all_signals.extend(_check_retail_sustained_decline(df))
     all_signals.extend(_check_fiscal_turning_point(df))
+
+    # 第五批政策情绪/技术面信号（2 个）
+    all_signals.extend(_check_credit_pulse_spike(df))
+    all_signals.extend(_check_volume_divergence(df))
 
     # 判定风险等级（阈值从配置读取）
     primary_count = sum(1 for s in all_signals if s.level == SignalLevel.PRIMARY)

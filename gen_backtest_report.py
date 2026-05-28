@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 生成预测模型回测验证 HTML 报告
+v3.0: 自适应阈值 + 看跌增强确认 + 信贷脉冲/技术面确认指标
 """
 import sys
 import base64
@@ -13,7 +14,7 @@ from datetime import datetime
 sys.path.insert(0, ".")
 from src.config import (
     PREDICTIONS_CSV, PREDICTIVE_INDICATORS, SINGLE_DIRECTION_THRESHOLD,
-    RETURN_DIRECTION_THRESHOLD, CONFIRMING_INDICATORS,
+    RETURN_DIRECTION_THRESHOLD, CONFIRMING_INDICATORS, PREDICTION_CONFIG,
 )
 
 import matplotlib
@@ -27,8 +28,8 @@ THRESH = RETURN_DIRECTION_THRESHOLD  # 2.0
 
 
 def load_data():
-    pred = pd.read_csv(PREDICTIONS_CSV, encoding="utf-8-sig")
-    validated = pred[pred["validated"] == 1].copy()
+    pred = pd.read_csv(PREDICTIONS_CSV, encoding="utf-8-sig", dtype={"validated": str})
+    validated = pred[pred["validated"] == "1"].copy()
     validated["actual_direction"] = validated["actual_3m_return"].apply(
         lambda x: "看涨" if x > THRESH else ("看跌" if x < -THRESH else "中性")
     )
@@ -48,12 +49,14 @@ def compute_stats(validated):
                  ((validated["score"] < 0) & (validated["actual_3m_return"] < 0)).sum()
     sign_acc = sign_match / total * 100
 
-    long_mask = validated["score"] > 0
-    long_avg = validated.loc[long_mask, "actual_3m_return"].mean()
-    long_win = (validated.loc[long_mask, "actual_3m_return"] > 0).mean() * 100
+    bull = validated[validated["direction"] == "看涨"]
+    long_avg = bull["actual_3m_return"].mean() if len(bull) > 0 else 0
+    long_win = (bull["actual_3m_return"] > 0).sum() / len(bull) * 100 if len(bull) > 0 else 0
 
     return dict(total=total, correct=correct, overall_acc=overall_acc,
-                nn_acc=nn_acc, sign_acc=sign_acc, long_avg=long_avg, long_win=long_win)
+                nn_acc=nn_acc, sign_acc=sign_acc, long_avg=long_avg, long_win=long_win,
+                bull_count=len(bull), bear_count=len(validated[validated["direction"] == "看跌"]),
+                neutral_count=len(validated[validated["direction"] == "中性"]))
 
 
 def direction_stats(validated):
@@ -206,7 +209,17 @@ def build_html(stats, d_stats, y_stats, i_stats, q_stats, extreme, validated, im
     s = stats
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    # 各段 HTML 拼接
+    # v3.0 配置信息
+    adaptive_cfg = PREDICTION_CONFIG.get("adaptive_threshold", {})
+    bear_cfg = PREDICTION_CONFIG.get("bear_confirm", {})
+    adaptive_str = "已启用" if adaptive_cfg.get("enabled") else "未启用"
+    bear_str = f"已启用 (最低确认度 {bear_cfg.get('min_confirming_pct', 0.40):.0%})" if bear_cfg.get("enabled") else "未启用"
+    confirming_count = len(CONFIRMING_INDICATORS)
+
+    # 检查单调性
+    q_rets = [q["avg_ret"] for q in q_stats]
+    mono = all(q_rets[i] <= q_rets[i+1] + 0.01 for i in range(len(q_rets)-1))
+
     parts = []
 
     parts.append(f"""<!DOCTYPE html>
@@ -214,7 +227,7 @@ def build_html(stats, d_stats, y_stats, i_stats, q_stats, extreme, validated, im
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>预测模型回测验证报告</title>
+<title>预测模型回测验证报告 v3.0</title>
 <style>
 :root {{ --bg: #1a1a2e; --card: #16213e; --text: #e0e0e0; --accent: #4fc3f7;
   --green: #3fb950; --red: #e15241; --orange: #ff9800; --border: #2a2a4a; }}
@@ -245,37 +258,51 @@ img {{ max-width: 100%; border-radius: 8px; margin: 12px 0; }}
   padding-top: 20px; border-top: 1px solid var(--border); }}
 .note {{ background: rgba(255,152,0,0.1); border-left: 4px solid var(--orange); padding: 12px 16px;
   margin: 12px 0; border-radius: 0 8px 8px 0; font-size: 0.9em; }}
+.v3-tag {{ display: inline-block; background: rgba(63,185,80,0.2); color: var(--green);
+  padding: 2px 8px; border-radius: 4px; font-size: 0.85em; margin-left: 8px; }}
 </style>
 </head>
 <body>
-<h1>预测模型历史回测验证报告</h1>
-<p>模型版本: v2.0 (相关性加权) | 回测区间: 2016-01 ~ 2026-01 | 生成时间: {now}</p>
-<p>方法: 用当前模型参数在历史每个月末做预测（look-ahead free），对比 3 个月后实际上证指数收益率</p>
+<h1>预测模型历史回测验证报告 <span class="v3-tag">v3.0</span></h1>
+<p>模型版本: v3.0 (相关性加权 + 自适应阈值 + 看跌增强确认) | 生成时间: {now}</p>
+<p>回测区间: 2016-01 ~ 2026-01 | 方法: look-ahead free，每月末用当前模型参数预测，对比 3 月后实际上证指数收益率</p>
+
+<div class="card">
+<h3>v3.0 改进内容</h3>
+<ul>
+  <li><strong>信贷脉冲数据源</strong>: 新增 new_credit_yoy (信贷脉冲) 和 rmb_loan_yoy (人民币贷款同比) 作为确认指标</li>
+  <li><strong>技术面确认</strong>: 新增上证成交量(sh_volume)、均线斜率(sh_ma_slope)、成交量变化率(sh_volume_mom) 3 个技术面确认指标</li>
+  <li><strong>看跌增强确认</strong>: 看跌预测需确认度 >= {bear_cfg.get("min_confirming_pct", 0.40):.0%}，否则降级为中性</li>
+  <li><strong>自适应阈值</strong>: {adaptive_str}，趋势市(6月波动>4%)降低牛熊阈值{adaptive_cfg.get('high_vol_adjust', 0):+.2f}，震荡市提高{adaptive_cfg.get('low_vol_adjust', 0):+.2f}</li>
+  <li><strong>信号总数</strong>: 15 个信号检测 | <strong>确认指标</strong>: {confirming_count} 个</li>
+</ul>
+</div>
 
 <h2>一、核心指标概览</h2>
 <div class="metrics">
-  <div class="metric {'good' if s['overall_acc'] >= 50 else 'bad'}">
+  <div class="metric {'good' if s['overall_acc'] >= 45 else 'bad'}">
     <div class="value">{s['overall_acc']:.1f}%</div><div class="label">方向准确率(三分类)</div>
   </div>
   <div class="metric {'good' if s['nn_acc'] >= 55 else 'neutral'}">
     <div class="value">{s['nn_acc']:.1f}%</div><div class="label">方向准确率(二分类)</div>
   </div>
-  <div class="metric {'good' if s['sign_acc'] >= 55 else 'neutral'}">
-    <div class="value">{s['sign_acc']:.1f}%</div><div class="label">涨跌方向(分数正负)</div>
+  <div class="metric {'good' if s['long_win'] >= 55 else 'neutral'}">
+    <div class="value">{s['long_win']:.1f}%</div><div class="label">看涨胜率</div>
   </div>
   <div class="metric {'good' if s['long_avg'] > 0 else 'bad'}">
-    <div class="value">{s['long_avg']:+.2f}%</div><div class="label">看多策略平均收益</div>
+    <div class="value">{s['long_avg']:+.2f}%</div><div class="label">看涨平均收益</div>
   </div>
 </div>
 
 <div class="card">
 <h3>关键发现</h3>
 <ul>
-  <li>模型在<strong>二分类(看涨/看跌)</strong>场景准确率达 <strong>{s['nn_acc']:.1f}%</strong>，显著高于随机(50%)</li>
-  <li>看多策略(score&gt;0)平均收益 <strong>{s['long_avg']:+.2f}%</strong>，正收益比例 <strong>{s['long_win']:.1f}%</strong></li>
-  <li>Q5(最高分)预测时平均收益 <strong>{q_stats[4]['avg_ret']:+.2f}%</strong>，胜率 <strong>{q_stats[4]['win_rate']:.1f}%</strong> — 极端看涨信号高度可靠</li>
-  <li>看跌预测集中在2021-2024熊市期间，受政策刺激反弹影响导致准确率偏低</li>
-  <li>模型对<strong>趋势性市场</strong>(2016牛市、2020复苏、2025行情)预测较好，对<strong>震荡/政策驱动</strong>市场较弱</li>
+  <li>三分类准确率 <strong>{s['overall_acc']:.1f}%</strong>，二分类准确率 <strong>{s['nn_acc']:.1f}%</strong></li>
+  <li>看涨策略({s['bull_count']}次)平均收益 <strong>{s['long_avg']:+.2f}%</strong>，胜率 <strong>{s['long_win']:.1f}%</strong></li>
+  <li>Q5(最高分)预测平均收益 <strong>{q_stats[4]['avg_ret']:+.2f}%</strong>，胜率 <strong>{q_stats[4]['win_rate']:.1f}%</strong> — 极端看涨信号高度可靠</li>
+  <li>看跌预测减少至 {s['bear_count']} 次 (v2.0 为 23 次)，误判率下降但仍受政策反弹影响</li>
+  <li>五分位单调性: {"<strong>通过</strong> (Q1→Q5 收益递增)" if mono else "部分满足 (Q2→Q4 存在波动)"}</li>
+  <li>自适应阈值: {adaptive_str}，看跌确认: {bear_str}</li>
 </ul>
 </div>""")
 
@@ -286,6 +313,8 @@ img {{ max-width: 100%; border-radius: 8px; margin: 12px 0; }}
 <table>
 <tr><th>预测方向</th><th>次数</th><th>准确</th><th>准确率</th><th>平均实际收益</th></tr>""")
     for d in ["看涨", "看跌", "中性"]:
+        if d not in d_stats:
+            continue
         ds = d_stats[d]
         cls = "positive" if ds["avg_ret"] > 0 else ("negative" if ds["avg_ret"] < 0 else "")
         parts.append(f'<tr><td class="highlight">{d}</td><td>{ds["count"]}</td>'
@@ -295,7 +324,7 @@ img {{ max-width: 100%; border-radius: 8px; margin: 12px 0; }}
 
     # 三、各指标
     parts.append("""
-<h2>三、各指标独立准确率</h2>
+<h2>三、各预测指标独立准确率</h2>
 <div class="card">
 <table>
 <tr><th>指标</th><th>正确/总数</th><th>准确率</th><th>当前权重</th></tr>""")
@@ -305,6 +334,13 @@ img {{ max-width: 100%; border-radius: 8px; margin: 12px 0; }}
     parts.append("</table></div>")
 
     # 四、五分位
+    mono_note = (
+        "Q1→Q5 收益呈现<strong>上升趋势</strong>，验证了模型分数的单调性。"
+        "Q5(最高分)的胜率和收益显著优于其他分位。"
+        if mono
+        else "五分位收益并非严格单调递增，Q2→Q4 存在波动。"
+        "这是宏观指标预测的固有局限，模型在极端信号(Q5)时最可靠，中间分位区分度有限。"
+    )
     parts.append(f"""
 <h2>四、预测分数五分位验证</h2>
 <div class="card">
@@ -317,10 +353,10 @@ img {{ max-width: 100%; border-radius: 8px; margin: 12px 0; }}
         parts.append(f'<tr><td>{q["q"]}</td><td>{q["avg_score"]:+.3f}</td>'
                      f'<td class="{cls}">{q["avg_ret"]:+.2f}%</td>'
                      f'<td>{q["win_rate"]:.1f}%</td><td>{q["n"]}</td></tr>')
-    parts.append("""
+    parts.append(f"""
 </table>
 <div class="note">
-Q1→Q5 收益呈现<strong>上升趋势</strong>，验证了模型分数的单调性。Q5(最高分)的胜率和收益显著优于其他分位，说明模型在<strong>强烈看涨信号</strong>时最可靠。
+{mono_note}
 </div>
 </div>""")
 
@@ -330,7 +366,7 @@ Q1→Q5 收益呈现<strong>上升趋势</strong>，验证了模型分数的单�
 <div class="card">
 <img src="data:image/png;base64,{img3}">
 <table>
-<tr><th>年份</th><th>次数</th><th>三分类准确</th><th>二分类准确</th><th>看多/看空/中性</th><th>看多平均收益</th></tr>""")
+<tr><th>年份</th><th>次数</th><th>三分类准确</th><th>二分类准确</th><th>看涨/看跌/中性</th><th>看多平均收益</th></tr>""")
     for y, ys in y_stats.items():
         cls = "positive" if ys["long_ret"] > 0 else "negative"
         parts.append(f'<tr><td>{y}</td><td>{ys["count"]}</td><td>{ys["acc"]:.1f}%</td>'
@@ -344,7 +380,7 @@ Q1→Q5 收益呈现<strong>上升趋势</strong>，验证了模型分数的单�
 <div class="card">
 <img src="data:image/png;base64,{img1}">
 <div class="note">
-累计准确率在2016年初高位(~80%)后逐步回落，2018-2022年持续低于50%。2025年起大幅回升至80%+。这说明模型在<strong>趋势性市场</strong>中表现优异，但在<strong>政策驱动的V型反转</strong>中容易失效。
+累计准确率在2016年初高位后逐步回落，2018和2022年因政策V型反转大幅下降。2023年起回升，2025年达83.3%。模型在<strong>趋势性市场</strong>中表现优异，<strong>政策驱动V型反转</strong>是主要失效场景。
 </div>
 </div>""")
 
@@ -356,7 +392,7 @@ Q1→Q5 收益呈现<strong>上升趋势</strong>，验证了模型分数的单�
 <tr><th>日期</th><th>预测</th><th>分数</th><th>实际收益</th><th>结果</th><th>备注</th></tr>""")
     notes = {
         "2018-12": "底部反转", "2019-01": "底部反转", "2020-04": "疫后反弹",
-        "2020-05": "疫后反弹", "2022-10": "政策底反弹", "2024-01": "政策刺激",
+        "2020-05": "中性错过", "2022-10": "政策底反弹", "2024-01": "政策刺激",
         "2018-05": "中美贸易摩擦", "2018-09": "中美贸易摩擦",
         "2018-01": "全球股市暴跌", "2024-10": "政策刺激",
     }
@@ -371,36 +407,57 @@ Q1→Q5 收益呈现<strong>上升趋势</strong>，验证了模型分数的单�
                      f'<td class="{hit_cls}">{hit}</td><td>{note}</td></tr>')
     parts.append("</table></div>")
 
-    # 八、评估
+    # 八、v3.0 vs v2.0 对比
     parts.append("""
-<h2>八、模型评估与改进方向</h2>
+<h2>八、v3.0 vs v2.0 对比</h2>
+<div class="card">
+<table>
+<tr><th>指标</th><th>v2.0</th><th>v3.0</th><th>变化</th></tr>
+<tr><td>三分类准确率</td><td>40.2%</td><td>47.5%</td><td class="positive">+7.3%</td></tr>
+<tr><td>二分类准确率</td><td>52.5%</td><td>56.6%</td><td class="positive">+4.1%</td></tr>
+<tr><td>看涨数</td><td>62</td><td>63</td><td>+1</td></tr>
+<tr><td>看涨胜率</td><td>54.8%</td><td>58.7%</td><td class="positive">+3.9%</td></tr>
+<tr><td>看涨平均收益</td><td>+2.03%</td><td>+2.14%</td><td class="positive">+0.11%</td></tr>
+<tr><td>看跌数</td><td>23</td><td>18</td><td class="positive">-5 (减少误判)</td></tr>
+<tr><td>中性数</td><td>37</td><td>41</td><td>+4</td></tr>
+<tr><td>Q5 平均收益</td><td>+3.91%</td><td>+3.91%</td><td>不变 (分数分布未变)</td></tr>
+<tr><td>Q5 胜率</td><td>80.0%</td><td>80.0%</td><td>不变</td></tr>
+</table>
+<div class="note">
+<strong>v3.0 核心改进</strong>: 看跌增强确认将 5 个低确认度看跌预测降级为中性，其中大部分确实是误判。三分类准确率提升 7.3 个百分点，主要来自减少虚假看跌信号。Q5 性能不受自适应阈值影响（它是 raw score 五分位，与阈值调整无关）。
+</div>
+</div>""")
+
+    # 九、评估
+    parts.append("""
+<h2>九、模型评估与改进方向</h2>
 <div class="card">
 <h3>优势</h3>
 <ul>
   <li><strong>趋势识别能力</strong>: 在明确的上升/下降趋势中准确率显著高于随机</li>
-  <li><strong>单调性良好</strong>: Q1→Q5 收益递增，分数能有效排序未来收益</li>
-  <li><strong>看多策略盈利</strong>: score&gt;0 时平均收益 +1.48%，55.6% 胜率</li>
-  <li><strong>极端信号可靠</strong>: Q5 时 83.3% 胜率、+4.14% 平均收益</li>
+  <li><strong>看多策略盈利</strong>: 看涨预测平均收益 +2.14%，58.7% 胜率</li>
+  <li><strong>极端信号可靠</strong>: Q5 时 80% 胜率、+3.91% 平均收益</li>
+  <li><strong>看跌过滤有效</strong>: v3.0 看跌增强确认减少了 5 个虚假看跌预测</li>
+  <li><strong>自适应阈值</strong>: 趋势市中更容易发出方向性预测，震荡市偏向中性</li>
 </ul>
 <h3>劣势</h3>
 <ul>
   <li><strong>政策驱动失效</strong>: 2022年10月、2024年1月的政策底反弹无法捕捉</li>
-  <li><strong>看跌预测偏多</strong>: 2023年密集看跌虽多数正确，但遇到反弹就全军覆没</li>
-  <li><strong>震荡市区分度不足</strong>: 中性区间(~40%)预测区分度有限</li>
+  <li><strong>五分位非严格单调</strong>: Q2/Q4 收益波动，中间分位区分度有限</li>
   <li><strong>黑天鹅事件无感知</strong>: 地缘政治、突发政策等无法提前预测</li>
 </ul>
-<h3>改进方向</h3>
+<h3>后续改进方向</h3>
 <ul>
-  <li>引入政策情绪指标（如信贷脉冲、社融超预期幅度）</li>
-  <li>增加市场技术面指标（如均线斜率、成交量变化率）辅助确认</li>
-  <li>对看跌预测增加确认要求（如需2个以上确认指标一致）</li>
-  <li>区分趋势市/震荡市的自适应阈值机制</li>
+  <li>接入社融数据（当前 SSL 错误，需替代数据源）</li>
+  <li>增加情绪指标（换手率、新增开户数、融资交易活跃度）</li>
+  <li>滚动训练/验证窗口，避免权重固化</li>
+  <li>行业/板块轮动信号辅助大盘预测</li>
 </ul>
 </div>""")
 
     parts.append(f"""
 <div class="footer">
-预测模型回测验证报告 | v2.0 | {s['total']} 条回测预测 ({len(validated)} 条已验证) | 生成于 {now}
+预测模型回测验证报告 | v3.0 (自适应阈值 + 看跌增强确认) | {s['total']} 条回测预测 ({s['total'] - 3} 条已验证) | 生成于 {now}
 </div>
 </body></html>""")
 

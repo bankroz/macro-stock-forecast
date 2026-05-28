@@ -696,6 +696,18 @@ def build_prediction_section(prediction_result, prediction_report_text="", devia
     # 综合预测
     dir_cls = {"看涨": "bull", "看跌": "bear", "中性": "neutral"}
     cls = dir_cls.get(prediction_result.direction, "neutral")
+
+    # v3.0: 自适应阈值和看跌确认状态
+    adaptive_html = ""
+    bear_html = ""
+    if hasattr(prediction_result, 'adaptive_info') and prediction_result.adaptive_info:
+        ai = prediction_result.adaptive_info
+        adaptive_html = f'<div style="font-size:0.85em;margin-top:4px;color:var(--accent);">市场状态: {ai.get("market_state", "-")} (波动率={ai.get("volatility", 0):.2%}, 阈值±{abs(ai.get("bull_adj", 0.2) - 0.2):.2f})</div>'
+    if hasattr(prediction_result, 'bear_confirm_info') and prediction_result.bear_confirm_info:
+        bi = prediction_result.bear_confirm_info
+        if bi.get("downgraded"):
+            bear_html = f'<div style="font-size:0.85em;margin-top:4px;color:var(--accent-gold);">⚠ 看跌确认不足({bi.get("confirming_pct", 0):.0%} < {bi.get("required_pct", 0):.0%})，已降级为中性</div>'
+
     pred_card = f"""
     <div class="prediction-card">
         <div class="prediction-item">
@@ -714,6 +726,8 @@ def build_prediction_section(prediction_result, prediction_report_text="", devia
             <div class="label">预测窗口</div>
             <div class="value">{PREDICTION_HORIZON} 个月</div>
         </div>
+        {adaptive_html}
+        {bear_html}
     </div>"""
 
     # 趋势确认

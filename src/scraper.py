@@ -7,6 +7,7 @@
 """
 
 import pandas as pd
+import numpy as np
 import logging
 import re
 from datetime import datetime
@@ -39,8 +40,8 @@ def fetch_pbc_deposits() -> list[dict] | None:
 
 def fetch_akshare_index(start_date: str = "20150101") -> list[dict] | None:
     """
-    使用 akshare 获取上证指数月度数据
-    返回格式: [{"date": "2026-05-01", "sh_close": 4200.0}]
+    使用 akshare 获取上证指数月度数据（含成交量）
+    返回格式: [{"date": "2026-05-01", "sh_close": 4200.0, "sh_volume": 6.5e10}]
     """
     try:
         import akshare as ak
@@ -49,7 +50,7 @@ def fetch_akshare_index(start_date: str = "20150101") -> list[dict] | None:
         return None
 
     try:
-        logger.info(f"akshare: 获取上证指数月度数据 (from {start_date})...")
+        logger.info(f"akshare: 获取上证指数月度数据含成交量 (from {start_date})...")
 
         # 获取上证指数月K线
         df = ak.stock_zh_index_daily(symbol="sh000001")
@@ -60,19 +61,24 @@ def fetch_akshare_index(start_date: str = "20150101") -> list[dict] | None:
         start_dt = pd.to_datetime(start_date)
         df = df[df["date"] >= start_dt].copy()
 
-        # 按月取最后一个交易日的收盘价
+        # 按月聚合：取月末收盘价 + 月度累计成交额
         df["year_month"] = df["date"].dt.to_period("M")
-        monthly = df.groupby("year_month").last().reset_index()
+        monthly = df.groupby("year_month").agg(
+            date=("date", "last"),
+            sh_close=("close", "last"),
+            sh_volume=("volume", "sum"),
+        ).reset_index()
         monthly["date"] = monthly["date"].dt.to_period("M").dt.to_timestamp()
 
         result = []
         for _, row in monthly.iterrows():
             result.append({
                 "date": row["date"],
-                "sh_close": row["close"],
+                "sh_close": row["sh_close"],
+                "sh_volume": row["sh_volume"],
             })
 
-        logger.info(f"akshare: 获取到 {len(result)} 条月度指数数据")
+        logger.info(f"akshare: 获取到 {len(result)} 条月度指数数据(含成交量)")
         return result
 
     except Exception as e:
@@ -971,6 +977,76 @@ def fetch_commodity_price() -> list[dict] | None:
 
 
 # ============================================================
+# 第五批：政策情绪指标（信贷脉冲）
+# ============================================================
+
+def fetch_macro_credit_impulse() -> list[dict] | None:
+    """
+    抓取新增金融信贷（社融替代）+ 新增人民币贷款
+    预测性：信贷脉冲是政策宽松/收紧的同步指标，信贷扩张领先经济复苏6-12月
+    主接口: macro_china_new_financial_credit (220条, 2008-2026)
+    辅接口: macro_rmb_loan (约30条, 近年数据)
+    """
+    try:
+        import akshare as ak
+    except ImportError:
+        logger.warning("缺少 akshare")
+        return None
+
+    try:
+        logger.info("akshare: 获取信贷脉冲数据（新增金融信贷+人民币贷款）...")
+
+        # 主接口：新增金融信贷
+        df_credit = ak.macro_china_new_financial_credit()
+        df_credit = df_credit.rename(columns={
+            "月份": "date_raw",
+            "当月": "new_credit_amount",
+            "当月-同比增长": "new_credit_yoy",
+        })
+        # 解析中文日期 "2026年04月份"
+        df_credit["date"] = pd.to_datetime(
+            df_credit["date_raw"].str.extract(r"(\d{4})年(\d{1,2})")[0] + "-" +
+            df_credit["date_raw"].str.extract(r"(\d{4})年(\d{1,2})")[1] + "-01"
+        )
+        df_credit["new_credit_yoy"] = pd.to_numeric(df_credit["new_credit_yoy"], errors="coerce")
+        credit_cols = ["date", "new_credit_yoy"]
+        df_credit = df_credit[credit_cols].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+
+        # 辅接口：新增人民币贷款
+        rmb_loan_data = {}
+        try:
+            df_loan = ak.macro_rmb_loan()
+            df_loan = df_loan.rename(columns={
+                "月份": "date_raw",
+                "新增人民币贷款-同比": "rmb_loan_yoy",
+            })
+            df_loan["date"] = pd.to_datetime(
+                df_loan["date_raw"].str.extract(r"(\d{4})年(\d{1,2})")[0] + "-" +
+                df_loan["date_raw"].str.extract(r"(\d{4})年(\d{1,2})")[1] + "-01"
+            )
+            df_loan["rmb_loan_yoy"] = pd.to_numeric(df_loan["rmb_loan_yoy"], errors="coerce")
+            for _, row in df_loan.iterrows():
+                if pd.notna(row.get("rmb_loan_yoy")):
+                    rmb_loan_data[row["date"]] = row["rmb_loan_yoy"]
+            logger.info(f"获取到 {len(df_loan)} 条人民币贷款数据")
+        except Exception as e:
+            logger.warning(f"人民币贷款数据获取失败: {e}")
+
+        # 合并 rmb_loan_yoy 到信贷数据
+        if rmb_loan_data:
+            df_credit["rmb_loan_yoy"] = df_credit["date"].map(rmb_loan_data)
+        else:
+            df_credit["rmb_loan_yoy"] = np.nan
+
+        result = df_credit.to_dict("records")
+        logger.info(f"获取到 {len(result)} 条信贷脉冲数据 ({df_credit['date'].min().strftime('%Y-%m')} ~ {df_credit['date'].max().strftime('%Y-%m')})")
+        return result
+    except Exception as e:
+        logger.error(f"信贷脉冲数据获取失败: {e}")
+        return None
+
+
+# ============================================================
 # 宏观指标批量抓取入口
 # ============================================================
 
@@ -1003,4 +1079,6 @@ MACRO_FETCHERS = {
     # 周度/日度聚合（先存，后续分析）
     "vegetable_basket": ("菜篮子价格指数", fetch_vegetable_basket),
     "commodity_price": ("大宗商品价格指数", fetch_commodity_price),
+    # 第五批：政策情绪指标（信贷脉冲）
+    "credit": ("信贷脉冲", fetch_macro_credit_impulse),
 }

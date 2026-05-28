@@ -58,6 +58,9 @@ MACRO_GDP_CSV = DATA_DIR / "macro_gdp.csv"
 MACRO_VEGETABLE_BASKET_CSV = DATA_DIR / "macro_vegetable_basket.csv"
 MACRO_COMMODITY_PRICE_CSV = DATA_DIR / "macro_commodity_price.csv"
 
+# 数据文件 — 第五批政策情绪指标
+MACRO_CREDIT_CSV = DATA_DIR / "macro_credit.csv"
+
 # 预测记录
 PREDICTIONS_CSV = DATA_DIR / "predictions.csv"
 
@@ -99,6 +102,8 @@ MACRO_COLUMNS = {
     # 周度/日度聚合（先存）
     "vegetable_basket": ["date", "vegetable_basket_yoy"],
     "commodity_price": ["date", "commodity_price_yoy"],
+    # 第五批政策情绪指标
+    "credit": ["date", "new_credit_yoy", "rmb_loan_yoy"],
 }
 
 # ============================================================
