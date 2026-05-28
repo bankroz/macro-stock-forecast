@@ -900,6 +900,76 @@ def fetch_macro_gdp() -> list[dict] | None:
         return None
 
 
+
+# ============================================================
+# 周度/日度数据聚合函数（先存起来，后续分析用）
+# ============================================================
+
+def fetch_vegetable_basket() -> list[dict] | None:
+    """
+    抓取菜篮子产品价格指数（日度），聚合为月度均值
+    参考意义：食品通胀高频替代，领先 CPI 1-2 月
+    """
+    try:
+        import akshare as ak
+    except ImportError:
+        logger.warning("缺少 akshare")
+        return None
+    try:
+        logger.info("akshare: 获取菜篮子价格指数（日度→月度聚合）...")
+        df = ak.macro_china_vegetable_basket()
+        df = df.rename(columns={"日期": "date", "最新值": "vegetable_basket_index"})
+        df["date"] = pd.to_datetime(df["date"])
+        df["vegetable_basket_index"] = pd.to_numeric(df["vegetable_basket_index"], errors="coerce")
+        df = df.dropna(subset=["date", "vegetable_basket_index"])
+        # 月度均值
+        df["year_month"] = df["date"].dt.to_period("M")
+        monthly = df.groupby("year_month")["vegetable_basket_index"].mean().reset_index()
+        monthly["date"] = monthly["year_month"].dt.to_timestamp()
+        # 计算同比（vs 去年同期均值）
+        monthly = monthly.sort_values("date").reset_index(drop=True)
+        monthly["vegetable_basket_yoy"] = monthly["vegetable_basket_index"].pct_change(periods=12) * 100
+        cols = ["date", "vegetable_basket_yoy"]
+        monthly = monthly[cols].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+        logger.info(f"获取到 {len(monthly)} 条菜篮子同比数据")
+        return monthly.to_dict("records")
+    except Exception as e:
+        logger.error(f"菜篮子数据获取失败: {e}")
+        return None
+
+
+def fetch_commodity_price() -> list[dict] | None:
+    """
+    抓取大宗商品价格指数（日度），聚合为月度均值
+    参考意义：PPI 高频领先指标，工业成本端压力
+    """
+    try:
+        import akshare as ak
+    except ImportError:
+        logger.warning("缺少 akshare")
+        return None
+    try:
+        logger.info("akshare: 获取大宗商品价格指数（日度→月度聚合）...")
+        df = ak.macro_china_commodity_price_index()
+        df = df.rename(columns={"日期": "date", "最新值": "commodity_price_index"})
+        df["date"] = pd.to_datetime(df["date"])
+        df["commodity_price_index"] = pd.to_numeric(df["commodity_price_index"], errors="coerce")
+        df = df.dropna(subset=["date", "commodity_price_index"])
+        # 月度均值
+        df["year_month"] = df["date"].dt.to_period("M")
+        monthly = df.groupby("year_month")["commodity_price_index"].mean().reset_index()
+        monthly["date"] = monthly["year_month"].dt.to_timestamp()
+        monthly = monthly.sort_values("date").reset_index(drop=True)
+        monthly["commodity_price_yoy"] = monthly["commodity_price_index"].pct_change(periods=12) * 100
+        cols = ["date", "commodity_price_yoy"]
+        monthly = monthly[cols].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+        logger.info(f"获取到 {len(monthly)} 条大宗商品价格同比数据")
+        return monthly.to_dict("records")
+    except Exception as e:
+        logger.error(f"大宗商品价格数据获取失败: {e}")
+        return None
+
+
 # ============================================================
 # 宏观指标批量抓取入口
 # ============================================================
@@ -930,4 +1000,7 @@ MACRO_FETCHERS = {
     "insurance": ("保险保费收入", fetch_macro_insurance),
     "enterprise_price": ("企业商品价格指数", fetch_macro_enterprise_price),
     "gdp": ("GDP增速", fetch_macro_gdp),
+    # 周度/日度聚合（先存，后续分析）
+    "vegetable_basket": ("菜篮子价格指数", fetch_vegetable_basket),
+    "commodity_price": ("大宗商品价格指数", fetch_commodity_price),
 }

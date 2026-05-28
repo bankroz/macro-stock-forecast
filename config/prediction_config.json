@@ -87,6 +87,27 @@
       "description": "资金流入即时",
       "threshold": 0,
       "inverse": false
+    },
+    "industrial_production_yoy": {
+      "label": "工业增加值",
+      "r": 0.174,
+      "description": "工业活跃度边际确认",
+      "threshold": 5,
+      "inverse": false
+    },
+    "enterprise_boom_index": {
+      "label": "企业景气指数",
+      "r": 0.277,
+      "description": "企业信心边际确认（季度→领先8月）",
+      "threshold": 120,
+      "inverse": false
+    },
+    "lpi_index": {
+      "label": "物流景气指数",
+      "r": 0.150,
+      "description": "经济活动活跃度边际确认",
+      "threshold": 50,
+      "inverse": false
     }
   },
   "confirming_labels": {

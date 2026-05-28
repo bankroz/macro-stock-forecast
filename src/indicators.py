@@ -123,6 +123,16 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
         # 方向标记
         result["fiscal_yoy_direction"] = np.sign(result["fiscal_yoy"].diff())
 
+    # ========== 第四批冷门宏观指标 ==========
+    for col in ["enterprise_boom_index", "entrepreneur_confidence_index",
+                "confidence_index", "lpi_index", "re_prosperity_index",
+                "unemployment_rate", "export_yoy", "import_yoy",
+                "industrial_production_yoy", "fa_investment_yoy",
+                "insurance_premium_yoy", "enterprise_price_yoy",
+                "gdp_yoy", "vegetable_basket_yoy", "commodity_price_yoy"]:
+        if col in result.columns:
+            result[col] = pd.to_numeric(result[col], errors="coerce")
+
     return result
 
 

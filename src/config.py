@@ -55,6 +55,8 @@ MACRO_FA_INVESTMENT_CSV = DATA_DIR / "macro_fa_investment.csv"
 MACRO_INSURANCE_CSV = DATA_DIR / "macro_insurance.csv"
 MACRO_ENTERPRISE_PRICE_CSV = DATA_DIR / "macro_enterprise_price.csv"
 MACRO_GDP_CSV = DATA_DIR / "macro_gdp.csv"
+MACRO_VEGETABLE_BASKET_CSV = DATA_DIR / "macro_vegetable_basket.csv"
+MACRO_COMMODITY_PRICE_CSV = DATA_DIR / "macro_commodity_price.csv"
 
 # 预测记录
 PREDICTIONS_CSV = DATA_DIR / "predictions.csv"
@@ -94,6 +96,9 @@ MACRO_COLUMNS = {
     "insurance": ["date", "insurance_premium_yoy"],
     "enterprise_price": ["date", "enterprise_price_yoy"],
     "gdp": ["date", "gdp_yoy"],
+    # 周度/日度聚合（先存）
+    "vegetable_basket": ["date", "vegetable_basket_yoy"],
+    "commodity_price": ["date", "commodity_price_yoy"],
 }
 
 # ============================================================
