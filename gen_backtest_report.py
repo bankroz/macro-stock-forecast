@@ -380,7 +380,7 @@ img {{ max-width: 100%; border-radius: 8px; margin: 12px 0; }}
 <div class="card">
 <img src="data:image/png;base64,{img1}">
 <div class="note">
-累计准确率在2016年初高位后逐步回落，2018和2022年因政策V型反转大幅下降。2023年起回升，2025年达83.3%。模型在<strong>趋势性市场</strong>中表现优异，<strong>政策驱动V型反转</strong>是主要失效场景。
+累计准确率（三分类）在2016年初高位后逐步回落，2018和2022年因政策V型反转大幅下降，此后长期在 40-50% 区间震荡。模型在<strong>趋势性市场</strong>中表现优异，<strong>政策驱动V型反转</strong>是主要失效场景。Q5（最高分五分位）胜率 <strong>80.0%</strong>，极端看涨信号高度可靠。
 </div>
 </div>""")
 
