@@ -188,6 +188,32 @@ tr:nth-child(even) td { background: rgba(33,38,45,0.4); }
 tr:hover td { background: rgba(88,166,255,0.06); }
 td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
+/* === Markdown 表格（prediction_report 转换） === */
+.md-table {
+    width: auto;
+    margin: 12px auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+.md-table th {
+    background: var(--bg-tertiary);
+    color: var(--accent-blue);
+    font-weight: 600;
+    text-align: left;
+    padding: 8px 16px;
+    white-space: nowrap;
+    position: static;
+}
+.md-table td {
+    text-align: left;
+    padding: 6px 16px;
+    border-top: 1px solid var(--border);
+    white-space: nowrap;
+}
+.md-table tr:first-child td { border-top: none; }
+.md-table tr:nth-child(even) td { background: rgba(33,38,45,0.4); }
+
 /* === 涨跌着色 === */
 .value-up { color: var(--accent-red); font-weight: 500; }
 .value-down { color: var(--accent-green); font-weight: 500; }
@@ -700,6 +726,7 @@ def build_prediction_section(prediction_result, prediction_report_text="", devia
     # v3.0: 自适应阈值和看跌确认状态
     adaptive_html = ""
     bear_html = ""
+    correction_html = ""
     if hasattr(prediction_result, 'adaptive_info') and prediction_result.adaptive_info:
         ai = prediction_result.adaptive_info
         adaptive_html = f'<div style="font-size:0.85em;margin-top:4px;color:var(--accent);">市场状态: {ai.get("market_state", "-")} (波动率={ai.get("volatility", 0):.2%}, 阈值±{abs(ai.get("bull_adj", 0.2) - 0.2):.2f})</div>'
@@ -707,6 +734,16 @@ def build_prediction_section(prediction_result, prediction_report_text="", devia
         bi = prediction_result.bear_confirm_info
         if bi.get("downgraded"):
             bear_html = f'<div style="font-size:0.85em;margin-top:4px;color:var(--accent-gold);">⚠ 看跌确认不足({bi.get("confirming_pct", 0):.0%} < {bi.get("required_pct", 0):.0%})，已降级为中性</div>'
+    if hasattr(prediction_result, 'correction_info') and prediction_result.correction_info:
+        ci = prediction_result.correction_info
+        if ci.get("triggered"):
+            anomaly_pct = ci.get("anomaly_pct", 0)
+            checked = ci.get("total_checked", 0)
+            anomaly_n = ci.get("anomaly_count", 0)
+            if ci.get("downgrade"):
+                correction_html = f'<div style="font-size:0.85em;margin-top:4px;color:var(--danger);">⚠ 修正机制触发: {anomaly_n}/{checked}指标反向({anomaly_pct:.0%})，预测已降级为中性</div>'
+            else:
+                correction_html = f'<div style="font-size:0.85em;margin-top:4px;color:var(--muted);">修正检查: {anomaly_n}/{checked}指标反向({anomaly_pct:.0%})，未达阈值</div>'
 
     pred_card = f"""
     <div class="prediction-card">
@@ -728,6 +765,7 @@ def build_prediction_section(prediction_result, prediction_report_text="", devia
         </div>
         {adaptive_html}
         {bear_html}
+        {correction_html}
     </div>"""
 
     # 趋势确认
@@ -802,21 +840,45 @@ def _md_to_simple_html(md_text: str) -> str:
     html = re.sub(r'^## (.+)$', r'<div class="section-title">\1</div>', html, flags=re.MULTILINE)
     # 加粗
     html = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', html)
-    # 表格行 → 跳过（已在外部处理）
+    # 表格：将 Markdown 表格转换为 HTML <table>
+    # 匹配连续的 |...| 行块（含分隔行 |---|---|）
+    def _convert_md_table(match):
+        table_lines = match.group(0).strip().split("\n")
+        rows = []
+        for line in table_lines:
+            line = line.strip()
+            if not line.startswith("|"):
+                continue
+            # 去掉首尾 |
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            # 跳过分隔行（|---|---|）
+            if all(re.match(r'^[-:]+$', c) for c in cells):
+                continue
+            tag = "th" if not rows else "td"
+            cells_html = "".join(f"<{tag}>{c}</{tag}>" for c in cells)
+            rows.append(f"<tr>{cells_html}</tr>")
+        if not rows:
+            return ""
+        return f'<table class="md-table">{"".join(rows)}</table>'
+    html = re.sub(
+        r'(?:^[ |]*\|.*\|[ ]*$\n?)+',
+        _convert_md_table,
+        html,
+        flags=re.MULTILINE
+    )
     # 列表项
     html = re.sub(r'^- (.+)$', r'<li>\1</li>', html, flags=re.MULTILINE)
     html = re.sub(r'((?:<li>.*</li>\n?)+)', r'<ul class="bullet-list">\1</ul>', html)
-    # 段落（连续非空行）
+    # 段落（连续非空行，跳过已有的 table/div/ul/li/p 标签）
     lines = html.split("\n")
     result_lines = []
     in_list = False
     for line in lines:
         stripped = line.strip()
-        if stripped.startswith("<li>") or stripped.startswith("<ul") or stripped.startswith("</ul") or stripped.startswith("<div"):
-            in_list = True
-            result_lines.append(line)
-        elif stripped == "":
-            in_list = False
+        if (stripped.startswith("<li>") or stripped.startswith("<ul") or stripped.startswith("</ul")
+                or stripped.startswith("<div") or stripped.startswith("<table") or stripped.startswith("<tr")
+                or stripped.startswith("</table") or stripped == ""):
+            in_list = stripped.startswith("<li>") or stripped.startswith("<ul") and not stripped.startswith("</ul")
             result_lines.append(line)
         else:
             if not in_list:

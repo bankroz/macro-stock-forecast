@@ -152,6 +152,14 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
         # 3月均值
         result["new_credit_yoy_ma3"] = result["new_credit_yoy"].rolling(3).mean()
 
+    # ========== 汇率指标（USDCNY） ==========
+    # usdcny: 美元兑人民币月度均值（水平值）
+    # usdcny_mom: 环比变化率(%)，已在 scraper 中计算
+    if "usdcny" in result.columns:
+        result["usdcny"] = pd.to_numeric(result["usdcny"], errors="coerce")
+    if "usdcny_mom" in result.columns:
+        result["usdcny_mom"] = pd.to_numeric(result["usdcny_mom"], errors="coerce")
+
     return result
 
 

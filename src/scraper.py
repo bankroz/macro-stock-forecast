@@ -1047,6 +1047,66 @@ def fetch_macro_credit_impulse() -> list[dict] | None:
 
 
 # ============================================================
+# 第六批：汇率指标（替代北向资金的外资风向标）
+# ============================================================
+
+def fetch_macro_usdcny() -> list[dict] | None:
+    """
+    抓取美元兑人民币汇率（中国银行中间价，日频），聚合为月度
+
+    预测性：
+    - USDCNY水平值滞后3月与上证3月收益 r=+0.45***（正相关：人民币贬值→利好出口→A股上涨）
+    - 接口: currency_boc_safe() (中国银行, 从1994年起, 非常稳定)
+    - 替代已失效的北向资金（2024-08后数据缺失）
+    - 接口返回宽格式：日期 + 美元/欧元/日元等列，美元列值为100外币兑人民币
+
+    逻辑：人民币贬值(USDCNY↑) → 出口竞争力↑ → 外资流入 → A股↑
+    """
+    try:
+        import akshare as ak
+    except ImportError:
+        logger.warning("缺少 akshare")
+        return None
+
+    try:
+        logger.info("akshare: 获取美元兑人民币汇率（中国银行中间价，日频→月度聚合）...")
+        df = ak.currency_boc_safe()
+        # 宽格式: 列名为货币名, 值为100单位外币兑人民币
+        # 需要取"美元"列, 值为100美元兑人民币, 除以100得到1美元兑人民币
+        if "美元" not in df.columns:
+            logger.error("USDCNY: 接口未返回'美元'列")
+            return None
+
+        df = df[["日期", "美元"]].copy()
+        df = df.rename(columns={"日期": "date", "美元": "usdcny_mid"})
+        df["date"] = pd.to_datetime(df["date"])
+        df["usdcny_mid"] = pd.to_numeric(df["usdcny_mid"], errors="coerce")
+        df = df.dropna(subset=["date", "usdcny_mid"])
+
+        # 100美元兑人民币 → 1美元兑人民币
+        df["usdcny_raw"] = df["usdcny_mid"] / 100.0
+
+        # 按月聚合：月度均值
+        df["year_month"] = df["date"].dt.to_period("M")
+        monthly = df.groupby("year_month").agg(
+            date=("date", "last"),
+            usdcny=("usdcny_raw", "mean"),
+        ).reset_index()
+        monthly["date"] = monthly["date"].dt.to_period("M").dt.to_timestamp()
+
+        # 计算环比变化率(%)
+        monthly["usdcny_mom"] = monthly["usdcny"].pct_change() * 100
+
+        cols = ["date", "usdcny", "usdcny_mom"]
+        monthly = monthly[cols].dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+        logger.info(f"获取到 {len(monthly)} 条 USDCNY 月度数据 ({monthly['date'].min().strftime('%Y-%m')} ~ {monthly['date'].max().strftime('%Y-%m')})")
+        return monthly.to_dict("records")
+    except Exception as e:
+        logger.error(f"USDCNY 汇率数据获取失败: {e}")
+        return None
+
+
+# ============================================================
 # 宏观指标批量抓取入口
 # ============================================================
 
@@ -1081,4 +1141,6 @@ MACRO_FETCHERS = {
     "commodity_price": ("大宗商品价格指数", fetch_commodity_price),
     # 第五批：政策情绪指标（信贷脉冲）
     "credit": ("信贷脉冲", fetch_macro_credit_impulse),
+    # 第六批：汇率指标（替代北向资金）
+    "usdcny": ("美元兑人民币汇率", fetch_macro_usdcny),
 }

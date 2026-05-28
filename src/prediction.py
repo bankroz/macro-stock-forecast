@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-预测引擎 + 自学习系统
-基于预测指标（领先型）生成未来 3 月走势预测，
-用趋势确认指标验证，记录预测结果以便后续验证和权重微调。
-自学习：偏差记录、per-indicator 准确率追踪、智能权重调整。
+预测引擎 v4.0 — 指标精选 + 修正机制 + 自适应阈值 + 看跌确认
+
+核心改进:
+  v4.0: 基于66指标修正能力分析精选5个预测指标 + 反常信号修正机制
+  v3.0: 自适应阈值 + 看跌增强确认
+  v2.0: 相关性加权 + 训练/验证集方向稳定性检验
 """
 
 import json
@@ -48,6 +50,127 @@ class PredictionResult:
     confirming_details: dict               # 各确认指标状态
     adaptive_info: dict = field(default_factory=dict)      # 自适应阈值状态 (v3.0)
     bear_confirm_info: dict = field(default_factory=dict)  # 看跌确认状态 (v3.0)
+    correction_info: dict = field(default_factory=dict)    # 修正机制状态 (v4.0)
+
+
+def compute_correction(df: pd.DataFrame, direction: str) -> dict:
+    """
+    v4.0 修正机制 — 扫描所有可用指标，检查反常信号比例
+
+    当方向性预测(看涨/看跌)做出后，检查所有可用指标中有多少
+    给出了相反方向的信号。如果反常信号比例超过阈值，
+    说明预测可能与多数指标矛盾，应降级为中性。
+
+    返回:
+        {
+            "enabled": bool,
+            "triggered": bool,         # 是否触发降级
+            "anomaly_pct": float,      # 反常信号比例
+            "total_checked": int,       # 检查的指标数
+            "anomaly_count": int,       # 反常信号数
+            "anomaly_indicators": list, # 反常指标名称列表
+            "downgrade": bool,          # 是否降级
+        }
+    """
+    config = PREDICTION_CONFIG.get("correction_mechanism", {})
+
+    result = {
+        "enabled": config.get("enabled", False),
+        "triggered": False,
+        "anomaly_pct": 0.0,
+        "total_checked": 0,
+        "anomaly_count": 0,
+        "anomaly_indicators": [],
+        "downgrade": False,
+    }
+
+    if not config.get("enabled", False):
+        return result
+
+    if direction == "中性":
+        return result  # 中性预测不需要修正
+
+    min_indicators = config.get("min_indicators_for_check", 5)
+    threshold = config.get("anomaly_threshold", 0.40)
+    indicator_dirs = config.get("indicator_directions", {})
+
+    # 收集所有可用的修正指标（预测 + 确认 + 额外）
+    all_check_cols = list(PREDICTIVE_INDICATORS.keys()) + list(CONFIRMING_INDICATORS.keys())
+    # 添加修正机制中额外指定的列
+    for col in indicator_dirs:
+        if col not in all_check_cols:
+            all_check_cols.append(col)
+
+    anomaly_count = 0
+    total_checked = 0
+    anomaly_indicators = []
+
+    for col in all_check_cols:
+        if col not in df.columns:
+            continue
+
+        value = _get_latest_valid(df, col)
+        if value is None:
+            continue
+
+        # 获取该指标的方向定义
+        direction_def = indicator_dirs.get(col)
+        if direction_def is None:
+            # 预测指标从配置中获取方向
+            if col in PREDICTIVE_INDICATORS:
+                direction_def = PREDICTIVE_INDICATORS[col].get("direction")
+            else:
+                continue
+
+        # 获取该指标的历史数据用于判断
+        history = df[col].dropna()
+        if len(history) < 12:
+            continue
+
+        median = history.median()
+        if pd.isna(median):
+            continue
+
+        # 判断该指标的信号方向
+        if direction_def == "positive":
+            # 正相关: 高于中位数 → 看涨
+            indicator_signal = "看涨" if value > median else "看跌"
+        elif direction_def == "negative":
+            # 负相关: 高于中位数 → 看跌
+            indicator_signal = "看跌" if value > median else "看涨"
+        else:
+            continue
+
+        total_checked += 1
+
+        # 检查是否与主预测方向相反
+        if indicator_signal != direction:
+            anomaly_count += 1
+            anomaly_indicators.append(col)
+
+    if total_checked < min_indicators:
+        logger.info(f"修正检查: 可用指标不足 ({total_checked} < {min_indicators})，跳过")
+        return result
+
+    anomaly_pct = anomaly_count / total_checked
+
+    result.update({
+        "triggered": True,
+        "anomaly_pct": round(anomaly_pct, 3),
+        "total_checked": total_checked,
+        "anomaly_count": anomaly_count,
+        "anomaly_indicators": anomaly_indicators[:10],  # 最多记录10个
+        "downgrade": anomaly_pct >= threshold,
+    })
+
+    if anomaly_pct >= threshold:
+        logger.info(
+            f"修正机制触发: {anomaly_count}/{total_checked} 指标给出反向信号 "
+            f"({anomaly_pct:.0%} >= {threshold:.0%}), 预测将降级为中性"
+        )
+        logger.debug(f"  反常指标: {anomaly_indicators[:10]}")
+
+    return result
 
 
 def _get_latest_valid(df: pd.DataFrame, col: str) -> float | None:
@@ -261,6 +384,14 @@ def generate_prediction(df: pd.DataFrame) -> PredictionResult:
                                   "required_pct": min_confirm}
             logger.info(f"看跌预测降级为中性: 确认度{confirming_pct:.0%} < {min_confirm:.0%}")
 
+    # ---- 修正机制 (v4.0) ----
+    correction_info = compute_correction(df, direction)
+    if correction_info.get("downgrade", False):
+        old_direction = direction
+        direction = "中性"
+        correction_info["original_direction"] = old_direction
+        logger.info(f"修正机制降级: {old_direction} → 中性 (反常信号{correction_info['anomaly_pct']:.0%})")
+
     # 获取日期
     latest_date = df["date"].dropna().iloc[-1]
     date_str = pd.Timestamp(latest_date).strftime("%Y-%m")
@@ -276,6 +407,7 @@ def generate_prediction(df: pd.DataFrame) -> PredictionResult:
         confirming_details=confirming_details,
         adaptive_info=adaptive_info,
         bear_confirm_info=bear_confirm_info,
+        correction_info=correction_info,
     )
 
     logger.info(
@@ -330,7 +462,10 @@ def record_prediction(result: PredictionResult, path: Path = PREDICTIONS_CSV):
 
 def validate_predictions(df: pd.DataFrame, path: Path = PREDICTIONS_CSV):
     """
-    验证历史预测：用实际 3 个月后上证收益率回填
+    验证历史预测：用实际日频上证数据回填 3 个月累计收益。
+    不再拘泥于整数月，只要有预测日和其后足够的数据就可以计算：
+    - 已过 ≥90 天 → 完整验证，标记 validated="1"
+    - 已过 30~89 天 → 部分验证，写入 actual_3m_return_partial，标记 validated="partial"
     """
     path = Path(path)
     if not path.exists():
@@ -345,35 +480,60 @@ def validate_predictions(df: pd.DataFrame, path: Path = PREDICTIONS_CSV):
         return
 
     df_sorted = df.sort_values("date").reset_index(drop=True)
+    today = pd.Timestamp.now().normalize()
 
-    unvalidated = predictions[predictions["validated"] != "1"]
+    unvalidated = predictions[predictions["validated"].isin(["0", ""])]
     if len(unvalidated) == 0:
         return
+
+    # 确保 partial 列存在
+    if "actual_3m_return_partial" not in predictions.columns:
+        predictions["actual_3m_return_partial"] = np.nan
 
     updated = False
     for idx, row in unvalidated.iterrows():
         pred_date = pd.Timestamp(row["date"])
         target_date = pred_date + pd.DateOffset(months=PREDICTION_HORIZON)
+        days_elapsed = (today - pred_date).days
 
-        target_row = df_sorted[df_sorted["date"].dt.to_period("M") == target_date.to_period("M")]
-        pred_row = df_sorted[df_sorted["date"].dt.to_period("M") == pred_date.to_period("M")]
+        # 找预测日当月的最后一个交易日收盘价
+        pred_month_rows = df_sorted[
+            (df_sorted["date"] >= pred_date.replace(day=1)) &
+            (df_sorted["date"].dt.to_period("M") == pred_date.to_period("M"))
+        ]
+        if len(pred_month_rows) == 0:
+            continue
+        pred_close = pred_month_rows["sh_close"].iloc[-1]
 
-        if len(pred_row) > 0 and len(target_row) > 0:
-            pred_close = pred_row["sh_close"].iloc[-1]
-            actual_close = target_row["sh_close"].iloc[-1]
+        # 找目标月（+3个月）的最后一个交易日收盘价
+        target_month_rows = df_sorted[
+            df_sorted["date"].dt.to_period("M") == target_date.to_period("M")
+        ]
+
+        if len(target_month_rows) > 0:
+            # 完整 3 月数据已到，正式验证
+            actual_close = target_month_rows["sh_close"].iloc[-1]
             actual_return = (actual_close / pred_close - 1) * 100
-
             predictions.at[idx, "actual_3m_return"] = round(actual_return, 2)
             predictions.at[idx, "validated"] = "1"
             updated = True
             logger.info(f"验证预测: {row['date']} → {row['direction']}, "
                        f"实际 3 月收益 {actual_return:+.2f}%")
-        elif len(pred_row) > 0:
-            continue
+
+        elif days_elapsed >= 30:
+            # 部分验证：用最新可用数据计算到目前的收益
+            latest_close = df_sorted["sh_close"].iloc[-1]
+            latest_date = df_sorted["date"].iloc[-1]
+            partial_return = (latest_close / pred_close - 1) * 100
+            predictions.at[idx, "actual_3m_return_partial"] = round(partial_return, 2)
+            predictions.at[idx, "validated"] = "partial"
+            updated = True
 
     if updated:
         predictions.to_csv(path, index=False, encoding="utf-8-sig")
-        logger.info(f"已验证 {len(unvalidated)} 条历史预测")
+        validated_full = len(predictions[predictions["validated"] == "1"])
+        validated_partial = len(predictions[predictions["validated"] == "partial"])
+        logger.info(f"预测验证更新: {validated_full} 完整, {validated_partial} 部分验证")
 
 
 def calculate_accuracy(path: Path = PREDICTIONS_CSV) -> dict:
@@ -669,16 +829,25 @@ def _generate_hypothesis(pred_dir, actual_dir, misleading, conflicts):
 
     if misleading:
         names = [m["label"] for m in misleading[:3]]
-        reasons.append(f"主要误导指标: {', '.join(names)}")
+        scores = [f"{m['score']:+.2f}(贡献{m['contribution']:+.4f})" for m in misleading[:3]]
+        reasons.append(f"主要误导指标: {', '.join(names)}（{', '.join(scores)}）")
 
     if conflicts:
         names = [c["label"] for c in conflicts]
         reasons.append(f"确认指标矛盾: {', '.join(names)}")
 
     if pred_dir == "看涨" and actual_dir == "看跌":
-        reasons.append("可能的系统性看涨偏误")
+        reasons.append("看涨预测遇实际下跌，可能受突发政策或外部冲击影响")
+    elif pred_dir == "看涨" and actual_dir == "中性":
+        reasons.append("看涨预测偏乐观，市场未如期上行")
     elif pred_dir == "看跌" and actual_dir == "看涨":
-        reasons.append("可能的系统性看跌偏误")
+        reasons.append("看跌预测遇实际上涨，可能受政策利好或资金驱动反弹")
+    elif pred_dir == "看跌" and actual_dir == "中性":
+        reasons.append("看跌预测偏悲观，市场表现出韧性")
+    elif pred_dir == "中性" and actual_dir == "看涨":
+        reasons.append("中性预测未能捕捉上涨行情，指标信号不足")
+    elif pred_dir == "中性" and actual_dir == "看跌":
+        reasons.append("中性预测未能预警下跌风险，指标信号不足")
 
     return "; ".join(reasons) if reasons else "原因不明，需人工分析"
 
@@ -794,14 +963,11 @@ def generate_deviation_report(deviation_log_path: Path = None) -> str:
     lines.append("| 日期 | 预测 | 实际 | 分数 | 实际收益 | 主要误导指标 | 原因推测 |")
     lines.append("|------|------|------|------|---------|------------|---------|")
 
-    for d in deviations[-10:]:  # 最近10条
+    for d in deviations:  # 全部列出
         misleading_names = ", ".join(
-            [m.get("label", m["indicator"]) for m in d.get("misleading_indicators", [])[:2]]
+            [m.get("label", m["indicator"]) for m in d.get("misleading_indicators", [])]
         ) or "-"
-        hypothesis = d.get("deviation_cause_hypothesis", "")
-        # 截断过长的原因推测
-        if len(hypothesis) > 40:
-            hypothesis = hypothesis[:40] + "..."
+        hypothesis = d.get("deviation_cause_hypothesis", "") or "-"
         lines.append(
             f"| {d['date']} | {d['predicted_direction']} | {d['actual_direction']} "
             f"| {d['predicted_score']:+.3f} | {d['actual_3m_return']:+.2f}% "
@@ -883,26 +1049,73 @@ def generate_prediction_report(path: Path = PREDICTIONS_CSV) -> str:
     if path.exists():
         df = pd.read_csv(path, encoding="utf-8-sig")
         if len(df) > 0:
+            # 加载偏差原因映射：日期 → 原因推测
+            deviation_reasons = {}
+            if DEVIATION_LOG_PATH.exists():
+                with open(DEVIATION_LOG_PATH, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                d = json.loads(line)
+                                h = d.get("deviation_cause_hypothesis", "")
+                                if h and h != "原因不明，需人工分析":
+                                    deviation_reasons[d["date"]] = h
+                            except json.JSONDecodeError:
+                                pass
+
             recent = df.tail(6).iloc[::-1]
             lines.append("### 最近预测记录")
             lines.append("")
-            lines.append("| 日期 | 预测方向 | 预测分数 | 置信度 | 确认度 | 实际3月收益 | 验证 |")
-            lines.append("|------|---------|---------|--------|--------|-----------|------|")
+            lines.append("| 日期 | 预测方向 | 预测分数 | 置信度 | 确认度 | 实际收益 | 结果 | 误判原因 |")
+            lines.append("|------|---------|---------|--------|--------|---------|------|---------|")
             for _, row in recent.iterrows():
+                val_status = str(row.get("validated", "0")).strip()
                 ret = row.get("actual_3m_return", "")
-                if pd.notna(ret) and str(ret).strip() != "":
+                ret_partial = row.get("actual_3m_return_partial", "")
+
+                result = ""
+                reason = ""
+                if val_status == "1":
+                    # 完整验证 — 判断预测方向是否正确
                     try:
-                        ret_str = f"{float(ret):+.2f}%"
+                        ret_val = float(ret)
+                        ret_str = f"{ret_val:+.2f}%"
+                        direction = str(row.get("direction", ""))
+                        if ret_val > 0 and "涨" in direction:
+                            result = "✅ 正确"
+                        elif ret_val < 0 and "跌" in direction:
+                            result = "✅ 正确"
+                        elif ret_val > 0 and "跌" in direction:
+                            result = "❌ 错误"
+                        elif ret_val < 0 and "涨" in direction:
+                            result = "❌ 错误"
+                        else:
+                            result = "➖ 平盘"
                     except (ValueError, TypeError):
-                        ret_str = "待验证"
+                        ret_str = "—"
+                        result = "⚠️ 异常"
+                elif val_status == "partial" and pd.notna(ret_partial) and str(ret_partial).strip():
+                    # 部分验证
+                    try:
+                        ret_str = f"{float(ret_partial):+.2f}%（至今）"
+                    except (ValueError, TypeError):
+                        ret_str = "—"
+                    result = "🔄 进行中"
                 else:
-                    ret_str = "待验证"
-                validated = "✅" if str(row.get("validated", "0")) == "1" else "⏳"
+                    # 未验证（预测月数据不足30天）
+                    ret_str = "—"
+                    result = "⏳ 待验证"
+
+                # 如果预测错误，附上偏差原因
+                if "错误" in result and row["date"] in deviation_reasons:
+                    reason = deviation_reasons[row["date"]]
+
                 conf_pct = f"{row.get('confirming_pct', 0):.0%}"
                 lines.append(
                     f"| {row['date']} | {row['direction']} | {row.get('score', 0):+.3f} "
                     f"| {row.get('confidence', 0):.2f} | {conf_pct} "
-                    f"| {ret_str} | {validated} |"
+                    f"| {ret_str} | {result} | {reason or '-'} |"
                 )
             lines.append("")
 

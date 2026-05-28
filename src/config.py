@@ -61,6 +61,9 @@ MACRO_COMMODITY_PRICE_CSV = DATA_DIR / "macro_commodity_price.csv"
 # 数据文件 — 第五批政策情绪指标
 MACRO_CREDIT_CSV = DATA_DIR / "macro_credit.csv"
 
+# 数据文件 — 第六批汇率指标
+MACRO_USDCNY_CSV = DATA_DIR / "macro_usdcny.csv"
+
 # 预测记录
 PREDICTIONS_CSV = DATA_DIR / "predictions.csv"
 
@@ -104,6 +107,8 @@ MACRO_COLUMNS = {
     "commodity_price": ["date", "commodity_price_yoy"],
     # 第五批政策情绪指标
     "credit": ["date", "new_credit_yoy", "rmb_loan_yoy"],
+    # 第六批汇率指标
+    "usdcny": ["date", "usdcny", "usdcny_mom"],
 }
 
 # ============================================================
@@ -205,11 +210,22 @@ DEFAULT_PREDICTION_CONFIG = {
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
-    """递归合并字典，override 中的值优先"""
+    """
+    递归合并字典，override 中的值优先
+
+    特殊处理: 对于 "predictive_indicators" 和 "confirming_indicators" 等指标配置字典，
+    override 的内容完全替换 base（不保留 base 中已移除的指标）。
+    """
     result = deepcopy(base)
+    # 指标池完全替换的键列表
+    full_replace_keys = {"predictive_indicators", "confirming_indicators", "indicator_directions"}
     for k, v in override.items():
         if k in result and isinstance(result[k], dict) and isinstance(v, dict):
-            result[k] = _deep_merge(result[k], v)
+            if k in full_replace_keys:
+                # 完全替换，不合并
+                result[k] = deepcopy(v)
+            else:
+                result[k] = _deep_merge(result[k], v)
         else:
             result[k] = deepcopy(v)
     return result

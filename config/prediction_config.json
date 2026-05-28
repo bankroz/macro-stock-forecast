@@ -1,88 +1,51 @@
 {
   "meta": {
-    "version": "3.0",
-    "description": "预测引擎配置 v3.0 - v2.0相关性加权 + 信贷脉冲 + 技术面确认 + 看跌增强确认 + 自适应阈值",
-    "last_modified": "2026-05-28",
-    "weight_method": "correlation_based_3m_return",
+    "version": "4.1",
+    "description": "v4.1: 移除无效财政收入预测指标 -> USDCNY确认指标; 权重归一化至3指标",
+    "last_modified": "2026-05-28 19:11",
+    "weight_method": "v3.0_correlation_based",
     "weight_calc_date": "2026-05-28",
-    "weight_data_range": "2015-01 ~ 2026-04 (全样本117月, 训练2015-2021, 验证2022-2026)"
+    "weight_data_range": "fiscal_yoy移除(0%准确率), 3指标权重归一化"
   },
   "parameters": {
     "horizon_months": 3,
     "percentile_window": 60,
-    "bull_threshold": 0.20,
-    "bear_threshold": -0.20,
+    "bull_threshold": 0.2,
+    "bear_threshold": -0.2,
     "min_history_months": 12,
     "return_direction_threshold": 2.0,
     "single_direction_threshold": 0.1
   },
-  "adaptive_threshold": {
-    "enabled": true,
-    "volatility_window": 6,
-    "high_vol_adjust": -0.04,
-    "low_vol_adjust": 0.04,
-    "high_vol_ratio": 0.04
-  },
-  "bear_confirm": {
-    "enabled": true,
-    "min_confirming_pct": 0.40
-  },
   "predictive_indicators": {
     "retail_yoy": {
-      "weight": 0.323,
+      "weight": 0.3805,
       "lag_months": 10,
       "r": -0.2182,
-      "r_p": 0.0283,
       "direction": "negative",
       "label": "社消零售",
       "min_weight": 0.05,
-      "max_weight": 0.50,
-      "direction_stable": true,
-      "test_r": -0.5111,
-      "test_p": 0.0028,
-      "correlation_note": "3月收益率窗口, lag=10月, p<0.05, 方向训练/验证一致"
-    },
-    "fiscal_yoy": {
-      "weight": 0.098,
-      "lag_months": 6,
-      "r": -0.1241,
-      "r_p": 0.4709,
-      "direction": "negative",
-      "label": "财政收入",
-      "min_weight": 0.05,
-      "max_weight": 0.50,
-      "direction_stable": false,
-      "test_r": -0.1241,
-      "test_p": 0.4709,
-      "correlation_note": "方向训练/验证FLIP, 权重x0.5惩罚, 取验证集方向(negative)"
+      "max_weight": 0.5,
+      "correlation_note": "v3.0: 负相关平衡, 分位数准确率40.5%"
     },
     "non_bank_yoy": {
-      "weight": 0.367,
+      "weight": 0.4871,
       "lag_months": 6,
       "r": 0.2479,
-      "r_p": 0.0068,
       "direction": "positive",
       "label": "非银存款增速",
       "min_weight": 0.05,
-      "max_weight": 0.50,
-      "direction_stable": true,
-      "test_r": 0.4330,
-      "test_p": 0.0026,
-      "correlation_note": "3月收益率窗口, lag=4-11月均p<0.05, 验证集r=+0.43**(最强最稳定)"
+      "max_weight": 0.5,
+      "correlation_note": "v3.0: 分位数准确率67.3%(最强)"
     },
     "m2_yoy": {
-      "weight": 0.213,
+      "weight": 0.1325,
       "lag_months": 0,
       "r": -0.1437,
-      "r_p": 0.0990,
       "direction": "negative",
       "label": "M2增速",
       "min_weight": 0.05,
-      "max_weight": 0.50,
-      "direction_stable": true,
-      "test_r": -0.2148,
-      "test_p": 0.1262,
-      "correlation_note": "3月收益率窗口, lag=0月同步, 边际显著(p<0.10)"
+      "max_weight": 0.5,
+      "correlation_note": "v3.0: 负相关平衡, 分位数准确率45.9%"
     }
   },
   "confirming_indicators": {
@@ -95,7 +58,7 @@
     },
     "pmi_manufacturing": {
       "label": "PMI制造业",
-      "r": 0.20,
+      "r": 0.2,
       "description": "景气度确认",
       "threshold": 50,
       "inverse": false
@@ -132,13 +95,13 @@
     "enterprise_boom_index": {
       "label": "企业景气指数",
       "r": 0.277,
-      "description": "企业信心边际确认（季度→领先8月）",
+      "description": "企业信心边际确认",
       "threshold": 120,
       "inverse": false
     },
     "lpi_index": {
       "label": "物流景气指数",
-      "r": 0.150,
+      "r": 0.15,
       "description": "经济活动活跃度边际确认",
       "threshold": 50,
       "inverse": false
@@ -163,11 +126,25 @@
       "description": "市场活跃度确认",
       "threshold": 0,
       "inverse": false
+    },
+    "usdcny": {
+      "label": "美元兑人民币汇率",
+      "r": 0.4463,
+      "description": "外资风向标(r=0.45), USDCNY高->人民币贬值->利好出口->A股涨",
+      "threshold": 0,
+      "inverse": false
+    },
+    "usdcny_mom": {
+      "label": "USDCNY环比",
+      "r": -0.3652,
+      "description": "汇率短期变化(负相关:升值加速->短期看跌)",
+      "threshold": 0,
+      "inverse": true
     }
   },
   "confirming_labels": {
-    "high": 0.70,
-    "partial": 0.40
+    "high": 0.7,
+    "partial": 0.4
   },
   "self_learning": {
     "enabled": true,
@@ -176,5 +153,48 @@
     "direction_accuracy_boost_threshold": 65,
     "direction_accuracy_penalty_threshold": 45,
     "adjust_interval_runs": 3
+  },
+  "adaptive_threshold": {
+    "enabled": true,
+    "volatility_window": 6,
+    "high_vol_adj": -0.04,
+    "low_vol_adj": 0.04,
+    "high_vol_ratio": 0.04
+  },
+  "bear_confirm": {
+    "enabled": true,
+    "min_confirming_pct": 0.4
+  },
+  "correction_mechanism": {
+    "enabled": true,
+    "description": "v4.1修正机制: fiscal_yoy移除, 新增usdcny/usdcny_mom方向定义",
+    "anomaly_threshold": 0.4,
+    "description_threshold": "当>=40%的可用指标给出与主预测相反的信号时，将方向降级为中性",
+    "min_indicators_for_check": 5,
+    "use_all_indicators": true,
+    "indicator_directions": {
+      "margin_yoy": "positive",
+      "retail_yoy_ma3": "negative",
+      "non_bank_mom": "positive",
+      "non_bank_yoy": "positive",
+      "shibor_on_avg": "negative",
+      "bdi_yoy": "positive",
+      "pmi_manufacturing": "positive",
+      "industrial_production_yoy": "positive",
+      "enterprise_boom_index": "positive",
+      "lpi_index": "positive",
+      "credit_pulse": "positive",
+      "sh_ma_slope": "positive",
+      "sh_volume_mom": "positive",
+      "margin_balance": "positive",
+      "non_bank_deposit": "positive",
+      "retail_yoy": "negative",
+      "fiscal_yoy_ma3": "negative",
+      "import_yoy": "negative",
+      "cpi_ppi_spread_change": "negative",
+      "unemployment_rate": "negative",
+      "usdcny": "positive",
+      "usdcny_mom": "negative"
+    }
   }
 }
