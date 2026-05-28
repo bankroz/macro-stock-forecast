@@ -1,6 +1,6 @@
 # 股市宏观分析系统
 
-基于**非银金融机构存款增速 + 12 个宏观指标**的股市见顶信号检测系统 + **走势预测引擎**。通过追踪资金面、信用周期、实体经济和市场情绪四个维度的变化，实现市场阶段性顶部的自动预警；同时基于 4 个领先指标的历史相关性加权，生成 3 个月窗口的走势预测并持续验证微调。
+基于**非银金融机构存款增速 + 25 个宏观指标**的股市见顶信号检测系统 + **走势预测引擎**。通过追踪资金面、信用周期、实体经济和市场情绪四个维度的变化，实现市场阶段性顶部的自动预警；同时基于 4 个领先指标的历史相关性加权，生成 3 个月窗口的走势预测并持续验证微调。
 
 ## 核心逻辑
 
@@ -12,7 +12,7 @@
 上证指数（即时响应）
 ```
 
-当非银存款增速从高位回落、或出现存款涨而指数跌的背离时，往往意味着资金正在撤离股市，是见顶的重要预警信号。系统同时监控 M2/PMI/BDI/社零/财政收入等 12 个宏观指标，通过多维度交叉验证提升信号可靠性。
+当非银存款增速从高位回落、或出现存款涨而指数跌的背离时，往往意味着资金正在撤离股市，是见顶的重要预警信号。系统同时监控 M2/PMI/BDI/社零/财政收入等 25 个宏观指标，通过多维度交叉验证提升信号可靠性。
 
 ## 项目结构
 
@@ -20,15 +20,16 @@
 股市分析/
 ├── run.py                          # 主入口：一键执行全流程（6步）
 ├── init_data.py                    # 核心数据初始化（存款+指数→CSV）
-├── init_macro_data.py              # 宏观指标数据初始化（全部13个宏观指标→CSV）
+├── init_macro_data.py              # 宏观指标数据初始化（全部25个宏观指标→CSV）
+├── analyze_new_indicators.py       # 新指标滞后相关性分析脚本（独立运行）
 ├── requirements.txt                # Python 依赖
 ├── run.bat                         # 双击一键运行（生成报告+图表+自动打开）
 ├── setup_schedule.bat              # Windows 定时任务安装（每周一自动运行）
 │
 ├── src/                            # 核心模块
 │   ├── config.py                   # 全局配置：JSON 加载器 + 路径 + 默认值回退
-│   ├── scraper.py                  # 数据采集：akshare 指数 + 12个宏观指标
-│   ├── data_manager.py             # CSV 读写、14个数据源外连接合并、增量更新
+│   ├── scraper.py                  # 数据采集：akshare 指数 + 25个宏观指标
+│   ├── data_manager.py             # CSV 读写、27个数据源外连接合并、增量更新
 │   ├── indicators.py               # 衍生指标：MoM/YoY/滚动均值/剪刀差等
 │   ├── signal_detector.py          # 信号检测引擎：13个信号 + 风险评级 + 回测
 │   ├── prediction.py               # 走势预测引擎 + 自学习系统（偏差追踪 + 智能权重调整）
@@ -37,12 +38,16 @@
 │
 ├── config/                         # JSON 配置文件（可手动编辑 + 程序自动微调）
 │   ├── signal_config.json          # 信号检测阈值（13个信号 + 风险等级 + 历史顶底）
-│   └── prediction_config.json      # 预测引擎配置（权重 + 确认指标 + 自学习参数）
+│   └── prediction_config.json      # 预测引擎配置（权重 + 8个确认指标 + 自学习参数）
 │
-├── data/                           # 数据目录（14个CSV）
+├── docs/                           # 分析文档
+│   └── indicator_evaluation_and_new_sources.md  # 全量指标评估 + 新数据源报告
+│
+├── data/                           # 数据目录（27个CSV）
 │   ├── deposits.csv                # 存款月度数据（2015.01 - 最新）
 │   ├── sh_index.csv                # 上证指数月度收盘价
 │   ├── predictions.csv             # 走势预测记录（含验证结果）
+│   ├── prediction_deviations.jsonl # 预测偏差日志（自学习输入）
 │   ├── macro_m2.csv                # M2/M1/M0 货币供应量
 │   ├── macro_pmi.csv               # PMI 制造业/非制造业
 │   ├── macro_electricity.csv       # 全社会用电量
@@ -54,7 +59,20 @@
 │   ├── macro_northbound.csv        # 北向资金月度净买入
 │   ├── macro_bdi.csv               # BDI 干散货指数（日频→月度）
 │   ├── macro_retail.csv            # 社消零售总额同比增速
-│   └── macro_fiscal.csv            # 财政收入当月同比增速
+│   ├── macro_fiscal.csv            # 财政收入当月同比增速
+│   ├── macro_enterprise_boom.csv   # 企业景气指数（季度）
+│   ├── macro_consumer_confidence.csv # 消费者信心指数
+│   ├── macro_lpi.csv               # 物流景气指数
+│   ├── macro_real_estate.csv       # 国房景气指数
+│   ├── macro_unemployment.csv      # 城镇调查失业率
+│   ├── macro_trade.csv             # 海关进出口（出口/进口同比+金额）
+│   ├── macro_industry.csv          # 工业增加值同比
+│   ├── macro_fa_investment.csv     # 固定资产投资同比
+│   ├── macro_insurance.csv         # 保险保费收入同比
+│   ├── macro_enterprise_price.csv  # 企业商品价格指数
+│   ├── macro_gdp.csv               # GDP增速（季度）
+│   ├── macro_vegetable_basket.csv  # 菜篮子价格指数（日频→月度聚合）
+│   └── macro_commodity_price.csv   # 大宗商品价格指数（日频→月度聚合）
 │
 ├── output/                         # 图表输出（6张PNG，文件名带日期）
 │   ├── main_trend_YYYY-MM-DD.png   # 存款+指数趋势对比图
@@ -110,22 +128,62 @@ python run.py --no-fetch
 
 ### 数据来源
 
+#### 核心指标（2个）
+
 | 数据 | 来源 | 更新频率 | 数据列 | 说明 |
 |------|------|----------|--------|------|
 | 居民/非银存款 | 中国人民银行 | 月度 | household_deposit, non_bank_deposit | 万元 |
 | 上证指数 | akshare `stock_zh_index_daily` | 月度 | sh_close | 日线→月末收盘 |
+
+#### 宏观第一批（3个）
+
+| 数据 | 来源 | 更新频率 | 数据列 | 说明 |
+|------|------|----------|--------|------|
 | M2/M1/M0 | akshare `macro_china_money_supply` | 月度 | m2_amount, m2_yoy 等 | 信用周期核心 |
 | PMI | akshare `macro_china_pmi` | 月度 | pmi_manufacturing, pmi_non_manufacturing | 景气先行指标 |
 | 全社会用电量 | akshare `macro_china_society_electricity` | 月度 | electricity_total_yoy 等 | GDP高频替代 |
+
+#### 宏观第二批（7个）
+
+| 数据 | 来源 | 更新频率 | 数据列 | 说明 |
+|------|------|----------|--------|------|
 | 两融余额 | akshare `macro_china_market_margin_sh` | 日度→月度 | margin_balance, margin_yoy | 散户杠杆度量 |
 | SHIBOR | akshare `macro_china_shibor_all` | 日度→月度 | shibor_on_avg, shibor_1w_avg | 资金面温度 |
 | LPR | akshare `macro_china_lpr` | 日度→月度 | lpr_1y, lpr_5y | 货币政策风向标 |
 | CPI | akshare `macro_china_cpi` | 月度 | cpi_yoy, cpi_mom | 消费价格 |
 | PPI | akshare `macro_china_ppi` | 月度 | ppi_yoy | 工业品价格 |
 | 北向资金 | akshare `stock_hsgt_hist_em` | 日度→月度 | northbound_net_buy | 外资风向标 |
+
+#### 宏观第三批（3个）
+
+| 数据 | 来源 | 更新频率 | 数据列 | 说明 |
+|------|------|----------|--------|------|
 | BDI 干散货指数 | akshare `macro_china_freight_index` | 日度→月度 | bdi_value, bdi_yoy | 全球需求同步指标 |
 | 社消零售总额 | akshare `macro_china_consumer_goods_retail` | 月度 | retail_yoy | 消费端景气度 |
 | 财政收入 | akshare `macro_china_czsr` | 月度 | fiscal_yoy | 政策空间参考 |
+
+#### 宏观第四批 — 冷门/替代指标（11个）
+
+| 数据 | 来源 | 更新频率 | 数据列 | 说明 |
+|------|------|----------|--------|------|
+| 企业景气指数 | akshare `macro_china_enterprise_boom_index` | 季度 | enterprise_boom_index | 企业信心（r=0.277, 滞后8月） |
+| 消费者信心指数 | akshare `macro_china_consumer_confidence_index` | 月度 | consumer_confidence_index | 消费者预期 |
+| 物流景气指数 | akshare `macro_china_lpi` | 月度 | lpi_index | 经济活跃度（r=0.150, 滞后1月） |
+| 国房景气指数 | akshare `macro_china_real_estate` | 月度 | real_estate_index | 房地产景气度 |
+| 城镇调查失业率 | akshare `macro_china_urban_unemployment` | 月度 | unemployment_rate | 就业市场 |
+| 海关进出口 | akshare `macro_china_trade` | 月度 | export_yoy, import_yoy 等 | 外贸景气度 |
+| 工业增加值 | akshare `macro_china_industry` | 月度 | industrial_production_yoy | 工业活跃度（r=0.174, 滞后5月） |
+| 固定资产投资 | akshare `macro_china_fa_investment` | 月度 | fa_investment_yoy | 投资端景气度 |
+| 保险保费收入 | akshare `macro_china_insurance_premium` | 月度 | insurance_premium_yoy | 保险资金入市参考 |
+| 企业商品价格指数 | akshare `macro_china_enterprise_price` | 月度 | enterprise_price_yoy | 上游价格压力 |
+| GDP增速 | akshare `macro_china_gdp` | 季度 | gdp_yoy | 经济总量增速 |
+
+#### 周度聚合数据（2个）
+
+| 数据 | 来源 | 更新频率 | 数据列 | 说明 |
+|------|------|----------|--------|------|
+| 菜篮子价格指数 | akshare `macro_china_vegetable_basket` | 日度→月度 | vegetable_basket_yoy | 食品通胀高频 |
+| 大宗商品价格指数 | akshare `macro_china_commodity_price` | 日度→月度 | commodity_price_yoy | 商品通胀高频 |
 
 ### 数据格式
 
@@ -226,6 +284,12 @@ BDI 干散货指数是全球大宗商品贸易的晴雨表，与上证指数同�
 ### 6. 消费与财政（社零 + 财政收入）
 社消零售和财政收入增速与上证指数负相关（r=-0.50, r=-0.37），领先约10个月，体现A股"政策市"特征：宏观走弱→政策宽松预期→市场上涨。
 
+### 7. 冷门替代指标（企业景气 + 物流 + 工业增加值）
+第四批指标通过 0-12 月滞后 Pearson 相关性验证，虽未达严格预测阈值（|r|>0.3 p<0.05），但边际显著（0.05 < p < 0.10），作为确认指标纳入。企业景气指数（季度频率，r=0.277, 滞后8月）和物流景气指数（月度，r=0.150, 滞后1月）提供实体经济和供应链活跃度的交叉验证。
+
+### 8. 通胀高频监测（菜篮子 + 大宗商品）
+日度数据聚合为月度同比，用于捕捉食品和商品价格的边际变化，辅助 CPI/PPI 判断。
+
 ## 图表输出
 
 | 图表 | 文件 | 内容 |
@@ -251,17 +315,19 @@ BDI 干散货指数是全球大宗商品贸易的晴雨表，与上证指数同�
 - **Python 3.10+**
 - **pandas**：数据处理与计算
 - **matplotlib**：图表生成（中文字体自动适配）
-- **akshare**：全量数据采集（指数 + 12个宏观指标）
-- **requests + beautifulsoup4**：央行数据爬虫（预留接口）
+- **akshare**：全量数据采集（指数 + 25个宏观指标）
+- **scipy**：滞后 Pearson 相关性分析
+- **jsonschema**：JSON 配置校验
 
 ## 已知限制
 
 1. 北向资金：akshare `stock_hsgt_hist_em` 自 2024-08 后当日成交净买额为 null，84.6% 非空率，报告中已标注
 2. 社融：akshare `macro_china_shrzgm` 存在 SSL 错误，尚未接入，需要替代数据源
-3. 央行存款数据爬虫 `fetch_pbc_deposits()` 为预留接口，尚未对接实际页面结构，当前依赖 CSV 手动更新
-4. 月度频率，对日内/周度级别的市场波动无感知
+3. 以下 akshare 接口不可用：全社会客货运（失效）、零售价格指数（失效）、能繁母猪存栏（返回 None）、乘联会汽车销量（JSONDecodeError）
+4. 月度频率，对日内/周度级别的市场波动无感知（菜篮子/大宗商品已聚合为月度）
 5. 历史回测显示对部分市场顶部（如2015年6月、2021年2月）的提前捕获能力有限，信号算法仍在持续优化
 6. 预测系统基于历史相关性，极端市场环境下（如黑天鹅事件）预测可靠性会下降
+7. 第四批冷门指标均未达 |r|>0.3 p<0.05 的严格预测阈值，仅作为边际确认指标纳入
 
 ## 走势预测系统
 
@@ -283,7 +349,7 @@ BDI 干散货指数是全球大宗商品贸易的晴雨表，与上证指数同�
 | 非银存款 YoY | +0.30 | 6月 | 正相关 | 22% | 资金直接入市 |
 | M2 YoY | +0.20 | 6月 | 正相关 | 14% | 信用环境宽松 |
 
-#### 趋势确认指标（5个）
+#### 趋势确认指标（8个）
 
 | 指标 | 相关性 r | 说明 |
 |------|---------|------|
@@ -292,6 +358,9 @@ BDI 干散货指数是全球大宗商品贸易的晴雨表，与上证指数同�
 | 两融余额 YoY | — | 杠杆水位 |
 | SHIBOR 隔夜 | — | 资金面即时 |
 | 非银存款 MoM | — | 资金流入即时 |
+| 工业增加值 YoY | +0.174 | 工业活跃度边际确认（滞后5月） |
+| 企业景气指数 | +0.277 | 企业信心边际确认（滞后8月，季度） |
+| 物流景气指数 | +0.150 | 经济活动活跃度边际确认（滞后1月） |
 
 ### 预测流程
 
@@ -299,7 +368,7 @@ BDI 干散货指数是全球大宗商品贸易的晴雨表，与上证指数同�
 1. 分位数标准化：各预测指标当前值 → 过去60月分位数 → 归一化到 [-1, +1]
 2. 方向反转：负相关指标取反（负值变正值 = 看涨信号）
 3. 加权求和：Σ(分数 × 权重) / 总权重 → 预测分数
-4. 趋势确认：5个确认指标中与预测方向一致的比例
+4. 趋势确认：8个确认指标中与预测方向一致的比例
 5. 输出结论：
    - score > +0.2 → 看涨，score < -0.2 → 看跌，中间 → 震荡
    - 确认度 > 70% 高度确认，40-70% 部分确认，< 40% 矛盾信号
@@ -311,7 +380,9 @@ BDI 干散货指数是全球大宗商品贸易的晴雨表，与上证指数同�
 
 1. 回填实际 3 个月后上证指数收益率到 `predictions.csv`
 2. 计算方向准确率和 MAE
-3. 基于准确率微调权重：准确率 > 70% → 权重 +5%（上限 50%），< 50% → 权重 -5%（下限 5%）
+3. 基于准确率微调权重（按指标独立调整）：准确率 > 65% → 权重 +5%（上限 50%），< 45% → 权重 -5%（下限 5%），需 ≥5 个样本
+4. 偏差记录到 `data/prediction_deviations.jsonl`（标记误导指标 + 原因推测）
+5. 默认每 3 次运行执行一次权重调整（可配置）
 
 ### 预测记录
 
