@@ -4,6 +4,18 @@
 数据采集 → 指标计算 → 信号检测 → 预测生成 → 图表生成 → 报告输出
 """
 
+# 过滤 jsonshema/strict mode 警告（来自 pydantic/jsonshema 依赖）
+# 这些警告输出到 stderr 会干扰 .bat 脚本的 errorlevel 判断
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message=".*missing type.*keyword.*pattern.*",
+)
+warnings.filterwarnings(
+    "ignore",
+    message=".*strict mode.*",
+)
+
 import sys
 import logging
 from pathlib import Path
