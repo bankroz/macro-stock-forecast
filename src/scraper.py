@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 数据爬虫模块
-- 央行官网爬取存款数据（主）
+- akshare macro_rmb_deposit 自动抓取居民存款（7天缓存）
+- 非银金融机构存款需从央行Excel手动补充
 - akshare 获取上证指数（主）
 - 手动 CSV 补充为备用
 """
@@ -18,24 +19,67 @@ logger = logging.getLogger(__name__)
 
 def fetch_pbc_deposits() -> list[dict] | None:
     """
-    从央行官网抓取最新存款数据
-    目前央行官网数据需要登录或有动态加载，作为预留接口
-    返回格式: [{"date": "2026-05-01", "household_deposit": 175.0, "non_bank_deposit": 46.0}]
+    从 akshare 自动抓取最新存款数据
+    - 居民存款：akshare macro_rmb_deposit（储蓄存款余额，亿元→万亿），自动更新
+    - 非银存款：央行报告增量与存量口径不一致，暂不自动更新（需手动从央行Excel提取）
+
+    返回格式: [{"date": "2026-05-01", "household_deposit": 175.0, "non_bank_deposit": NaN}]
+    返回 None 表示无新数据
     """
     try:
-        import requests
-        from bs4 import BeautifulSoup
+        import akshare as ak
     except ImportError:
-        logger.warning("缺少 requests 或 beautifulsoup4，请运行 pip install requests beautifulsoup4 lxml")
+        logger.warning("缺少 akshare，请运行 pip install akshare")
         return None
 
-    # 尝试从央行统计页面抓取
-    # 注意：央行官网数据通常需要手动下载 Excel，此爬虫作为框架预留
-    # 实际使用时可能需要根据页面结构调整选择器
-    logger.info("央行数据爬虫：正在尝试获取...")
-    logger.info("提示：央行官网数据通常需要手动下载 Excel 后导入 data/ 目录")
-    logger.info("请将下载的文件放到 data/manual_deposits.csv，格式为 date,household_deposit,non_bank_deposit")
-    return None
+    # --- 1. 从 macro_rmb_deposit 获取居民存款余额 ---
+    logger.info("akshare: 获取人民币存款数据(居民存款余额)...")
+    try:
+        df = ak.macro_rmb_deposit()
+        if df.empty:
+            logger.warning("macro_rmb_deposit 返回空数据")
+            return None
+    except Exception as e:
+        logger.error(f"macro_rmb_deposit 获取失败: {e}")
+        return None
+
+    # 解析月份格式 "2026-04" → "2026-04-01"
+    df["date"] = pd.to_datetime(df["月份"] + "-01")
+
+    # --- 2. 读取现有 deposits.csv ---
+    deposits_path = Path(__file__).resolve().parent.parent / "data" / "deposits.csv"
+    if not deposits_path.exists():
+        logger.warning("deposits.csv 不存在，无法增量更新")
+        return None
+
+    existing = pd.read_csv(deposits_path, encoding="utf-8-sig")
+    existing["date"] = pd.to_datetime(existing["date"])
+    last_date = existing["date"].max()
+    last_household = existing.loc[existing["date"] == last_date, "household_deposit"].values[0]
+    logger.info(f"现有存款数据截止: {last_date.strftime('%Y-%m')}, 住户={last_household:.2f}万亿")
+
+    # --- 3. 找出新月份 ---
+    new_months = df[df["date"] > last_date].copy()
+    if new_months.empty:
+        logger.info("居民存款数据已是最新，无需更新")
+        return None
+
+    logger.info(f"发现 {len(new_months)} 个月的新居民存款数据")
+
+    # --- 4. 生成新行（居民存款自动，非银存款留空需手动补充） ---
+    new_rows = []
+    for _, row in new_months.iterrows():
+        month_date = row["date"]
+        household = round(row["新增储蓄存款-数量"] / 10000, 2)  # 亿元→万亿
+        logger.info(f"  {month_date.strftime('%Y-%m')}: 居民存款={household:.2f}万亿, 非银存款需手动补充")
+        new_rows.append({
+            "date": month_date,
+            "household_deposit": household,
+            "non_bank_deposit": np.nan,
+        })
+
+    logger.info(f"成功获取 {len(new_rows)} 条新居民存款数据（非银存款需从央行Excel手动补充）")
+    return new_rows
 
 
 def fetch_akshare_index(start_date: str = "20150101") -> list[dict] | None:
@@ -85,24 +129,6 @@ def fetch_akshare_index(start_date: str = "20150101") -> list[dict] | None:
         logger.error(f"akshare 获取指数数据失败: {e}")
         return None
 
-
-def fetch_manual_csv(path: Path) -> list[dict] | None:
-    """
-    从手动 CSV 文件读取数据
-    格式要求: date,household_deposit,non_bank_deposit[,sh_close]
-    """
-    if not path.exists():
-        return None
-
-    try:
-        df = pd.read_csv(path, encoding="utf-8-sig")
-        df["date"] = pd.to_datetime(df["date"])
-        result = df.to_dict("records")
-        logger.info(f"从手动 CSV 读取 {len(result)} 条数据: {path}")
-        return result
-    except Exception as e:
-        logger.error(f"读取手动 CSV 失败: {e}")
-        return None
 
 
 # ============================================================

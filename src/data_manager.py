@@ -169,6 +169,112 @@ def update_macro(name: str, new_rows: list[dict]):
 
 
 # ============================================================
+# 数据完整性检查
+# ============================================================
+
+def check_data_completeness(verbose: bool = True) -> dict:
+    """
+    检查关键数据的完整性，返回缺失情况字典。
+    在 run.py 中调用，运行时自动提醒手动补数。
+
+    Returns:
+        {
+            "deposits_missing": [...],   # 缺失非银存款的月份列表
+            "deposits_stale": bool,      # 存款数据是否过期（超过40天未更新）
+            "index_stale": bool,          # 上证指数是否过期
+            "macro_missing": {...},       # 各宏观指标最新数据月份
+        }
+    """
+    from datetime import datetime, timedelta
+    import numpy as np
+
+    result = {
+        "deposits_missing": [],
+        "deposits_stale": False,
+        "index_stale": False,
+        "macro_missing": {},
+        "warnings": [],
+    }
+
+    now = datetime.now()
+    today_str = now.strftime("%Y-%m-%d")
+
+    # --- 1. 检查 deposits.csv（非银存款缺失） ---
+    deposits = load_deposits()
+    if not deposits.empty:
+        # 检查最近6个月是否有 non_bank_deposit 为 NaN
+        recent = deposits.tail(6).copy()
+        missing_months = []
+        for _, row in recent.iterrows():
+            nb = row["non_bank_deposit"]
+            # pd.isna 统一处理：np.nan / None / pd.NA / 非数值字符串
+            if pd.isna(nb):
+                missing_months.append(row["date"].strftime("%Y-%m"))
+            else:
+                break  # 从最新往前，遇到有数据的就停止
+
+        result["deposits_missing"] = missing_months
+        if missing_months:
+            result["warnings"].append(
+                f"⚠️ 非银存款数据缺失: {', '.join(missing_months)} 月未填入，"
+                f"请在 data/deposits.csv 中手动补充 non_bank_deposit 列"
+            )
+
+        # 检查是否过期（最新数据距今超过40天）
+        last_date = deposits["date"].max()
+        days_since = (now - last_date).days
+        if days_since > 40:
+            result["deposits_stale"] = True
+            result["warnings"].append(
+                f"⚠️ 存款数据已 {days_since} 天未更新（最新: {last_date.strftime('%Y-%m-%d')}），"
+                f"请运行脚本或手动更新 data/deposits.csv"
+            )
+
+    # --- 2. 检查 sh_index.csv（上证指数过期） ---
+    sh = load_sh_index()
+    if not sh.empty:
+        last_date = sh["date"].max()
+        days_since = (now - last_date).days
+        if days_since > 5:  # 非交易日也按5天提醒
+            result["index_stale"] = True
+            result["warnings"].append(
+                f"⚠️ 上证指数数据已 {days_since} 天未更新（最新: {last_date.strftime('%Y-%m-%d')}），"
+                f"请运行 python run.py 更新"
+            )
+
+    # --- 3. 检查宏观指标（可选，避免输出过多） ---
+    stale_macros = []
+    for name in ["m2", "pmi", "bdi", "usdcny"]:  # 只检查最重要的几个
+        df = load_macro(name)
+        if df.empty:
+            continue
+        last_date = df["date"].max()
+        days_since = (now - last_date).days
+        # 月度数据按35天算，日度按5天
+        threshold = 35 if name in ["m2", "pmi"] else 5
+        if days_since > threshold:
+            stale_macros.append(f"{name}({last_date.strftime('%Y-%m-%d')})")
+
+    if stale_macros:
+        result["macro_missing"] = stale_macros
+        result["warnings"].append(
+            f"⚠️ 以下宏观指标可能过期: {', '.join(stale_macros)}"
+        )
+
+    if verbose and result["warnings"]:
+        logger.warning("=" * 60)
+        logger.warning("数据完整性检查结果：发现缺失/过期数据")
+        logger.warning("=" * 60)
+        for w in result["warnings"]:
+            logger.warning(w)
+        logger.warning("=" * 60)
+        logger.warning("提示：运行 python init_macro_data.py 可重新初始化宏观数据")
+        logger.warning("=" * 60)
+
+    return result
+
+
+# ============================================================
 # 数据合并
 # ============================================================
 

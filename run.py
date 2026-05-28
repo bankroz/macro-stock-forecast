@@ -43,7 +43,7 @@ from src.prediction import (
     smart_adjust_weights,
 )
 from src.scraper import (
-    fetch_akshare_index, MACRO_FETCHERS,
+    fetch_akshare_index, fetch_pbc_deposits, MACRO_FETCHERS,
 )
 
 # ============================================================
@@ -78,6 +78,36 @@ def run(fetch_new_data: bool = True):
     # Step 1: 数据采集（可选）
     if fetch_new_data:
         logger.info("[Step 1/6] 尝试获取最新数据...")
+
+        # 存款数据（居民+非银）：一周缓存，避免频繁请求
+        try:
+            deposits_csv = BASE_DIR / "data" / "deposits.csv"
+            from datetime import timedelta
+            need_fetch = True
+            if deposits_csv.exists():
+                mtime = datetime.fromtimestamp(deposits_csv.stat().st_mtime)
+                if datetime.now() - mtime < timedelta(days=7):
+                    need_fetch = False
+                    logger.info(f"存款数据更新于 {mtime.strftime('%Y-%m-%d %H:%M')}，7天内无需重新抓取")
+
+            if need_fetch:
+                new_deposits = fetch_pbc_deposits()
+                if new_deposits:
+                    # 追加到 deposits.csv
+                    existing = pd.read_csv(deposits_csv, encoding="utf-8-sig")
+                    new_df = pd.DataFrame(new_deposits)
+                    new_df["date"] = pd.to_datetime(new_df["date"]).dt.strftime("%Y-%m-%d")
+                    # 只添加不存在的月份
+                    existing_dates = set(existing["date"].values)
+                    new_df = new_df[~new_df["date"].isin(existing_dates)]
+                    if not new_df.empty:
+                        updated = pd.concat([existing, new_df], ignore_index=True).sort_values("date")
+                        updated.to_csv(deposits_csv, index=False, encoding="utf-8-sig")
+                        logger.info(f"存款数据已更新: 新增 {len(new_df)} 个月 ({new_df['date'].min()} ~ {new_df['date'].max()})")
+                    else:
+                        logger.info("存款数据已是最新")
+        except Exception as e:
+            logger.warning(f"存款数据采集跳过: {e}")
 
         # 上证指数
         try:

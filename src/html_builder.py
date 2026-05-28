@@ -166,7 +166,7 @@ body {
 /* === 表格 === */
 .table-wrapper { overflow-x: auto; margin: 12px 0; }
 table {
-    width: 100%;
+    width: auto;
     border-collapse: collapse;
     font-size: 0.92em;
 }
@@ -179,19 +179,25 @@ th {
     white-space: nowrap;
     position: sticky;
     top: 0;
+    vertical-align: middle;
+    line-height: 1.4;
+    height: 1px;
 }
 td {
     padding: 8px 12px;
     border-top: 1px solid var(--border);
+    vertical-align: middle;
+    line-height: 1.4;
+    height: 1px;
 }
 tr:nth-child(even) td { background: rgba(33,38,45,0.4); }
 tr:hover td { background: rgba(88,166,255,0.06); }
-td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.num { text-align: left; font-variant-numeric: tabular-nums; }
 
 /* === Markdown 表格（prediction_report 转换） === */
 .md-table {
     width: auto;
-    margin: 12px auto;
+    margin: 12px 0;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     overflow: hidden;
@@ -204,12 +210,18 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
     padding: 8px 16px;
     white-space: nowrap;
     position: static;
+    vertical-align: middle;
+    line-height: 1.4;
+    height: 1px;
 }
 .md-table td {
     text-align: left;
     padding: 6px 16px;
     border-top: 1px solid var(--border);
-    white-space: nowrap;
+    vertical-align: middle;
+    line-height: 1.4;
+    height: 1px;
+    font-variant-numeric: tabular-nums;
 }
 .md-table tr:first-child td { border-top: none; }
 .md-table tr:nth-child(even) td { background: rgba(33,38,45,0.4); }
@@ -351,7 +363,7 @@ def build_data_source_table(source_dates: dict) -> str:
         return "-"
 
     sources = [
-        ("非银/居民存款", "央行官网", "手动CSV", "月度", _sd("non_bank_deposit")),
+        ("非银/居民存款", "央行统计", "居民自动/非银手动", "月度", _sd("non_bank_deposit")),
         ("上证指数", "上交所", "akshare", "日度", _sd("sh_close")),
         ("M2/M1/M0", "央行统计", "akshare", "月度", _sd("m2_yoy")),
         ("PMI", "国家统计局", "akshare", "月度", _sd("pmi_manufacturing")),
@@ -361,7 +373,7 @@ def build_data_source_table(source_dates: dict) -> str:
         ("LPR 1年/5年", "全国银行间同业拆借中心", "akshare", "月度", _sd("lpr_1y")),
         ("CPI", "国家统计局", "akshare", "月度", _sd("cpi_yoy")),
         ("PPI", "国家统计局", "akshare", "月度", _sd("ppi_yoy")),
-        ("北向资金", "港交所", "akshare", "日度", _sd("northbound_net_buy")),
+        ("北向资金", "港交所", "akshare (2024-08后缺失)", "日度", _sd("northbound_net_buy")),
         ("BDI干散货指数", "波罗的海交易所", "akshare", "日度", _sd("bdi_yoy")),
         ("社消零售总额", "国家统计局", "akshare", "月度", _sd("retail_yoy")),
         ("财政收入", "财政部", "akshare", "月度", _sd("fiscal_yoy")),
@@ -503,10 +515,12 @@ def build_liquidity_section(metrics, chart_b64="") -> str:
     # 北向
     nb_text = "数据暂无（注意：akshare接口2024.08后数据缺失）"
     nb_val = metrics.get("northbound_net_buy")
-    if nb_val is not None and pd.notna(nb_val):
+    if nb_val is not None and pd.notna(nb_val) and nb_val != 0:
         direction = "净流入" if nb_val >= 0 else "净流出"
         cls = "value-up" if nb_val >= 0 else "value-down"
         nb_text = f'本月{direction}：<span class="{cls}"><b>{abs(nb_val):.0f} 亿元</b></span>'
+    elif nb_val is not None and nb_val == 0:
+        nb_text = '<span style="color:var(--text-secondary)">数据不可用（akshare接口自2024-08起当日成交净买额为空）</span>'
 
     # CPI-PPI 剪刀差
     spread_text = "数据暂无"
@@ -845,6 +859,7 @@ def _md_to_simple_html(md_text: str) -> str:
     def _convert_md_table(match):
         table_lines = match.group(0).strip().split("\n")
         rows = []
+        headers = []
         for line in table_lines:
             line = line.strip()
             if not line.startswith("|"):
@@ -855,7 +870,15 @@ def _md_to_simple_html(md_text: str) -> str:
             if all(re.match(r'^[-:]+$', c) for c in cells):
                 continue
             tag = "th" if not rows else "td"
-            cells_html = "".join(f"<{tag}>{c}</{tag}>" for c in cells)
+            if not rows:
+                headers = cells
+            # 给特定列加宽度样式
+            cells_html = ""
+            for i, c in enumerate(cells):
+                style = ""
+                if i < len(headers) and headers[i] in ("误判原因", "原因推测", "详情"):
+                    style = ' style="min-width: 280px;"'
+                cells_html += f"<{tag}{style}>{c}</{tag}>"
             rows.append(f"<tr>{cells_html}</tr>")
         if not rows:
             return ""
