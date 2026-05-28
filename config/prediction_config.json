@@ -1,0 +1,104 @@
+{
+  "meta": {
+    "version": "1.0",
+    "description": "预测引擎配置 - 手动编辑或自动学习调整",
+    "last_modified": "2026-05-28"
+  },
+  "parameters": {
+    "horizon_months": 3,
+    "percentile_window": 60,
+    "bull_threshold": 0.20,
+    "bear_threshold": -0.20,
+    "min_history_months": 12,
+    "return_direction_threshold": 2.0,
+    "single_direction_threshold": 0.1
+  },
+  "predictive_indicators": {
+    "retail_yoy": {
+      "weight": 0.37,
+      "lag_months": 10,
+      "r": -0.5007,
+      "direction": "negative",
+      "label": "社消零售",
+      "min_weight": 0.05,
+      "max_weight": 0.50
+    },
+    "fiscal_yoy": {
+      "weight": 0.27,
+      "lag_months": 10,
+      "r": -0.3681,
+      "direction": "negative",
+      "label": "财政收入",
+      "min_weight": 0.05,
+      "max_weight": 0.50
+    },
+    "non_bank_yoy": {
+      "weight": 0.22,
+      "lag_months": 6,
+      "r": 0.30,
+      "direction": "positive",
+      "label": "非银存款增速",
+      "min_weight": 0.05,
+      "max_weight": 0.50
+    },
+    "m2_yoy": {
+      "weight": 0.14,
+      "lag_months": 6,
+      "r": 0.20,
+      "direction": "positive",
+      "label": "M2增速",
+      "min_weight": 0.05,
+      "max_weight": 0.50
+    }
+  },
+  "confirming_indicators": {
+    "bdi_yoy": {
+      "label": "BDI干散货指数",
+      "r": 0.3629,
+      "description": "全球需求同步",
+      "threshold": 0,
+      "inverse": false
+    },
+    "pmi_manufacturing": {
+      "label": "PMI制造业",
+      "r": 0.20,
+      "description": "景气度确认",
+      "threshold": 50,
+      "inverse": false
+    },
+    "margin_yoy": {
+      "label": "两融余额增速",
+      "r": 0,
+      "description": "杠杆水位",
+      "threshold": 0,
+      "inverse": false
+    },
+    "shibor_on_avg": {
+      "label": "SHIBOR隔夜",
+      "r": 0,
+      "description": "资金面即时",
+      "threshold": 2.0,
+      "inverse": true,
+      "neutral_upper": 3.0
+    },
+    "non_bank_mom": {
+      "label": "非银存款MoM",
+      "r": 0,
+      "description": "资金流入即时",
+      "threshold": 0,
+      "inverse": false
+    }
+  },
+  "confirming_labels": {
+    "high": 0.70,
+    "partial": 0.40
+  },
+  "self_learning": {
+    "enabled": true,
+    "min_samples_for_adjust": 5,
+    "weight_adjust_step": 0.05,
+    "direction_accuracy_boost_threshold": 65,
+    "direction_accuracy_penalty_threshold": 45,
+    "adjust_interval_runs": 3
+  }
+}
